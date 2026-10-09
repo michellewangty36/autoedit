@@ -17,6 +17,8 @@ echo First start: setting up AutoEdit (this takes a few minutes, only once)...
 if errorlevel 1 goto failed
 ".venv\Scripts\python.exe" prefetch.py
 :run
+rem Put an "AutoEdit" shortcut on the Desktop so it can be opened from there.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=[Environment]::GetFolderPath('Desktop'); $l=Join-Path $d 'AutoEdit.lnk'; if(-not (Test-Path $l)){ $s=(New-Object -ComObject WScript.Shell).CreateShortcut($l); $s.TargetPath='%~f0'; $s.WorkingDirectory='%~dp0'; $s.IconLocation='%SystemRoot%\System32\imageres.dll,18'; $s.Description='AutoEdit video editor'; $s.Save() }" >nul 2>nul
 ".venv\Scripts\python.exe" update.py
 echo Starting AutoEdit... your browser will open. Keep this window open while you use it.
 ".venv\Scripts\python.exe" app.py
