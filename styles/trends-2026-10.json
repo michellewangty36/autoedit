@@ -1,0 +1,30 @@
+{
+  "about": "Style pack. Add new looks here as JSON; AutoEdit loads every file in this folder. 'extends' copies an existing style and changes only what you list.",
+  "moods": {
+    "dreamy": {"extends": "chill", "bpm": 76, "key": "A", "prog": [0, 5, 3, 4]}
+  },
+  "styles": {
+    "y2k": {
+      "extends": "reels",
+      "desc": "Y2K / digicam trend: flashy colours, pixel and blur transitions, grain",
+      "transitions": ["pixelize", "hblur", "zoomin", "fadewhite", "squeezev", "slideup"],
+      "grade": "eq=contrast=1.15:saturation=1.45:brightness=0.03,colorbalance=bs=0.06:bh=0.05,unsharp=5:5:0.8",
+      "grain": 10, "vignette": true, "mood": "happy"
+    },
+    "moody": {
+      "extends": "cinematic",
+      "desc": "Dark moody aesthetic: muted colours, deep shadows, slow fades to black",
+      "letterbox": false,
+      "transitions": ["fadeblack", "fade", "dissolve"],
+      "grade": "eq=contrast=1.18:saturation=0.65:gamma=0.9:brightness=-0.03,colorbalance=bs=0.06:bm=0.03",
+      "grain": 8, "mood": "cinematic"
+    },
+    "dreamy": {
+      "extends": "chill",
+      "desc": "Soft dreamy glow, pastel tones, gentle fades",
+      "grade": "eq=contrast=0.92:saturation=0.85:brightness=0.05,colorbalance=rh=0.04:bh=0.05,gblur=sigma=0.6",
+      "transitions": ["fadewhite", "dissolve", "fade", "smoothup"],
+      "mood": "dreamy"
+    }
+  }
+}
