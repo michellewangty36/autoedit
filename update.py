@@ -21,9 +21,10 @@ KEEP = {"output", "music", "fonts", ".venv", "update.json", "__pycache__"}
 
 def _ctx():
     try:
+        import os
         import ssl
         import certifi
-        return ssl.create_default_context(cafile=certifi.where())
+        return ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or certifi.where())
     except Exception:
         return None
 
