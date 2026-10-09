@@ -3,7 +3,8 @@ title AutoEdit - free video editor
 cd /d "%~dp0"
 rem AutoEdit uses its own copy of Python 3.12 (64-bit), which also runs on ARM laptops.
 set "PYX=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
-if exist ".venv\Scripts\python.exe" goto run
+if exist ".venv\Scripts\python.exe" ".venv\Scripts\python.exe" -c "import gradio, cv2, faster_whisper" >nul 2>nul && goto run
+if exist ".venv" rmdir /s /q .venv
 if exist "%PYX%" goto setup
 echo Installing Python 3.12 (one time only)...
 winget install -e --id Python.Python.3.12 --architecture x64 --scope user --silent --accept-package-agreements --accept-source-agreements

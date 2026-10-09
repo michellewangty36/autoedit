@@ -6,7 +6,8 @@ if ! command -v python3 >/dev/null 2>&1; then
   read -p "Press Enter to close"
   exit 1
 fi
-if [ ! -x .venv/bin/python ]; then
+if ! .venv/bin/python -c "import gradio, cv2, faster_whisper" >/dev/null 2>&1; then
+  rm -rf .venv
   echo "First start: setting up (this takes a few minutes, only once)..."
   python3 -m venv .venv
   .venv/bin/python -m pip install --upgrade pip

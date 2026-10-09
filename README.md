@@ -57,6 +57,10 @@ Keep the black window open while you use AutoEdit. Closing it stops the app.
 - **Speed:** 720p is the fastest setting. A 1–2 minute video usually takes a few minutes. The first video with speech downloads the speech model once (about 0.5 GB).
 - **Subtitles in Chinese, Japanese or Korean** use the fonts already on your computer. You can put your own `.ttf` font in the `fonts` folder.
 
+## Moving to a new computer
+
+Copy the whole AutoEdit folder to the new computer, for example with a USB drive or OneDrive. Then double-click START, and it sets itself up again for the new computer. Your songs, fonts and finished videos come along inside the folder. You can also download a fresh copy any time from github.com/michellewangty36/autoedit: click **Code**, then **Download ZIP**. If you do that, copy your `music` folder across from the old computer.
+
 ## For advanced users (command line)
 
 ```
