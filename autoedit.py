@@ -179,6 +179,42 @@ STYLES = {
         vignette=False, grain=4, letterbox=False, voice=0.6, music=0.45, keep_speech=True,
         slowmo=False, sub_style="pill", title_font="sans"),
 }
+XFADE_TRANSITIONS = ["fade", "fadeblack", "fadewhite", "dissolve", "smoothleft", "smoothright", "smoothup",
+                     "smoothdown", "slideleft", "slideright", "slideup", "slidedown", "wipeleft", "wiperight",
+                     "wipeup", "wipedown", "circleopen", "circleclose", "circlecrop", "zoomin", "radial",
+                     "pixelize", "hblur", "hlslice", "squeezeh", "squeezev", "fadegrays", "distance"]
+# per-shot effects for "Edit it myself" ({W},{H},{D} are filled in per shot)
+EFFECTS = {
+    "none": "",
+    "zoom in": "zoompan=z='1+0.14*on/({D}*30)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={W}x{H}:fps=30",
+    "zoom out": "zoompan=z='1.14-0.14*on/({D}*30)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={W}x{H}:fps=30",
+    "punch zoom": "zoompan=z='1+0.18*max(0,1-on/12)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={W}x{H}:fps=30",
+    "shake": "scale={W2}:{H2},crop={W}:{H}:x='({W2}-{W})/2+sin(t*41)*{SX}':y='({H2}-{H})/2+cos(t*37)*{SY}'",
+    "flash": "fade=t=in:st=0:d=0.35:color=white",
+    "black & white": "hue=s=0,eq=contrast=1.12",
+    "sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
+    "vintage": "curves=preset=vintage,noise=alls=14:allf=t",
+    "vivid": "eq=saturation=1.5:contrast=1.08",
+    "warm": "colorbalance=rs=0.08:rm=0.06:bs=-0.06:bm=-0.05",
+    "cool": "colorbalance=rs=-0.06:bs=0.08:bm=0.05",
+    "glow": "split=2[gla][glb];[glb]gblur=sigma=14[glc];[gla][glc]blend=all_mode=screen:all_opacity=0.38",
+    "glitch": "rgbashift=rh=8:bh=-8:gv=3,noise=alls=10:allf=t,eq=saturation=1.3",
+    "blur in": "boxblur=18:enable='lt(t,0.45)'",
+    "mirror": "hflip",
+    "reverse": "reverse",
+}
+LIVELY_TRANSITIONS = ["zoomin", "slideleft", "fadewhite", "circleopen", "smoothup", "pixelize", "radial", "slideright"]
+
+
+def effect_filter(name, W, H, D):
+    f = EFFECTS.get((name or "none").strip().lower(), "")
+    if not f:
+        return ""
+    W2, H2 = int(W * 1.06) // 2 * 2, int(H * 1.06) // 2 * 2
+    return (f.replace("{W2}", str(W2)).replace("{H2}", str(H2)).replace("{W}", str(W)).replace("{H}", str(H))
+             .replace("{D}", f"{max(D, 0.5):.3f}").replace("{SX}", str(W // 120)).replace("{SY}", str(H // 120)))
+
+
 ASPECTS = {"16:9": (16, 9), "9:16": (9, 16), "1:1": (1, 1), "4:5": (4, 5)}
 
 
@@ -608,11 +644,15 @@ def render_video_clip(c, out, W, H, style, tr, enc):
     if slow != 1.0:
         chain.append(f"setpts={slow:.3f}*PTS")
     chain.append(f"fps={FPS},setsar=1")
+    if c.get("effect") == "reverse":
+        chain.append(f"trim=0:{c['dur']:.3f},reverse")
+    elif effect_filter(c.get("effect"), W, H, c["dur"]):
+        chain.append(effect_filter(c.get("effect"), W, H, c["dur"]))
     if style["grade"]:
         chain.append(style["grade"])
     chain.append("format=yuv420p")
     vf = "[0:v]" + ",".join(chain) + "[v]"
-    vol = style["voice"] if (info["audio"] and slow == 1.0) else 0.0
+    vol = style["voice"] if (info["audio"] and slow == 1.0 and c.get("effect") != "reverse") else 0.0
     fin = min(tr, c["dur"] / 3) if c.get("index", 0) > 0 else 0.05
     fout = min(tr, c["dur"] / 3)
     cmd = [FFMPEG, "-y", "-v", "error", "-ss", f"{c['start']:.3f}", "-t", f"{src_len + 0.1:.3f}", "-i", str(c["path"])]
@@ -678,7 +718,10 @@ def render_photo_clip(c, out, W, H, style, tr, enc, rng):
             cy = 0.5
         return z, cx, cy
 
-    vf = f"fps={FPS},setsar=1" + ("," + style["grade"] if style["grade"] else "") + ",format=yuv420p"
+    eff = effect_filter(c.get("effect") if c.get("effect") not in ("reverse", "zoom in", "zoom out") else "", W, H,
+                        c["dur"])
+    vf = f"fps={FPS},setsar=1" + ("," + eff if eff else "") + ("," + style["grade"] if style["grade"] else "") \
+        + ",format=yuv420p"
     cmd = [FFMPEG, "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS),
            "-i", "-", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-vf", vf, "-map", "0:v", "-map", "1:a",
            "-t", f"{c['dur']:.3f}"] + enc + ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", str(out)]
@@ -731,6 +774,21 @@ def draw_text_png(path, W, H, text, kind="sub", style_name="pill", font_kind="sa
             y += size * 0.15
             d.line([(W / 2 - tw / 2, y), (W / 2 + tw / 2, y)], fill=(255, 255, 255, 180), width=max(1, short // 400))
             d.text(((W - tw) / 2, y + size * 0.15), sub, font=sub_font, fill=(255, 255, 255, 230))
+        img.save(path)
+        return
+    if kind == "caption":  # on-screen text the user typed for a shot
+        size = int(short * (0.075 if W >= H else 0.068))
+        font = get_font("sans", size, text)
+        lines = wrap(d, text, font, W * 0.84)[:3]
+        y = max(letterbox, 0) + H * (0.08 if W >= H else 0.14)
+        for ln in lines:
+            tw = d.textlength(ln, font=font)
+            x = (W - tw) / 2
+            pad = size * 0.4
+            d.rounded_rectangle([x - pad, y - pad * 0.5, x + tw + pad, y + size + pad * 0.8],
+                                radius=int(size * 0.3), fill=(255, 255, 255, 235))
+            d.text((x, y), ln, font=font, fill=(20, 20, 20, 255))
+            y += size * 1.45
         img.save(path)
         return
     # subtitles
@@ -1123,6 +1181,130 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
             f"{' (slow-motion)' if c.get('slow', 1.0) != 1.0 else ''}"
             f"{' - looks like: ' + c['label'] if c.get('label') else ''}")
 
+    # ---- the edit plan: everything needed to render, and what "Edit it myself" changes
+    if title and subtitle_text is None:
+        d0 = next((x["time"] for x in ordered if x["time"]), None)
+        subtitle_text = d0.strftime("%d %B %Y").lstrip("0") if d0 else ""
+    language = None
+    shots = []
+    for i, c in enumerate(chosen):
+        sh = dict(order=i + 1, keep=True, kind=c["kind"], path=str(Path(c["path"]).resolve()),
+                  start=round(float(c.get("start", 0.0)), 3), dur=round(float(c["dur"]), 3),
+                  speed=round(1.0 / c.get("slow", 1.0), 3), transition="auto", effect="none", text="",
+                  label=c.get("label") or "", speech=bool(c.get("speech")), shaky=bool(c.get("shaky")),
+                  face_x=c.get("face_x"))
+        if c["kind"] == "photo":
+            sh["face_x"], sh["face_y"] = c["meta"].get("face_x"), c["meta"].get("face_y")
+        else:
+            inf = c["item"]["info"]
+            sh["info"] = dict(w=inf["w"], h=inf["h"], audio=inf["audio"], hdr=inf["hdr"], duration=inf["duration"])
+            trn = c["item"].get("transcript")
+            if subtitles and trn and c.get("slow", 1.0) == 1.0:
+                language = language or trn["language"]
+                a, b = c["start"], c["start"] + c["dur"]
+                words = [w for sg in trn["segments"] for w in sg["words"]
+                         if w["start"] >= a - 0.05 and w["end"] <= b + 0.15]
+                sh["subs"] = [dict(start=round(l["start"], 3), end=round(l["end"], 3), text=l["text"])
+                              for l in build_sub_lines(words, H > W)]
+        shots.append(sh)
+    plan = dict(version=1, style=style, aspect=aspect, resolution=resolution, mood=mood,
+                music=str(music_path) if music_path else None, music_volume=S["music"], title=title or "",
+                subtitle_text=subtitle_text or "", subtitles=bool(subtitles), language=language,
+                seed=rng.randint(0, 1 << 30), shots=shots)
+    return render_plan(plan, output=output, progress=progress, log=log, keep_temp=keep_temp,
+                       _work=work, _t_start=t_start)
+
+
+def make_lively(plan):
+    """One-click "more lively": energetic transitions, effects on the beat, quicker non-talking shots."""
+    shots = sorted([s for s in plan["shots"] if s.get("keep", True)], key=lambda x: float(x.get("order", 0)))
+    video_fx = ["punch zoom", "none", "zoom in", "vivid", "flash", "none", "glow", "shake"]
+    photo_fx = ["punch zoom", "vivid", "glow", "flash"]
+    for k, sh in enumerate(shots):
+        if k:
+            sh["transition"] = LIVELY_TRANSITIONS[k % len(LIVELY_TRANSITIONS)]
+        if sh.get("speech"):
+            sh["effect"] = "punch zoom" if k % 2 == 0 else "none"
+            continue
+        sh["effect"] = "flash" if k == 0 else (photo_fx if sh["kind"] == "photo" else video_fx)[k % 8 % (4 if sh["kind"] == "photo" else 8)]
+        if sh["kind"] == "video" and float(sh.get("dur", 0)) > 3.0:
+            sh["dur"] = 2.6
+        if sh["kind"] == "photo":
+            sh["dur"] = min(float(sh.get("dur", 2.5)), 2.2)
+    if plan.get("style") in ("film", "cinematic", "chill", "moody", "dreamy"):
+        plan["mood"] = "upbeat"
+        plan["music"] = None
+    plan["music_volume"] = max(float(plan.get("music_volume", 0.4)), 0.45)
+    return plan
+
+
+def load_plan(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def render_plan(plan, output=None, progress=None, log=print, keep_temp=False, _work=None, _t_start=None):
+    """Render a video from an edit plan (made automatically, or changed by hand)."""
+    t_start = _t_start or time.time()
+
+    def prog(frac, msg):
+        log(msg)
+        if progress:
+            try:
+                progress(frac, msg)
+            except Exception:
+                pass
+
+    rng = random.Random(plan.get("seed", 0))
+    style = plan["style"] if plan["style"] in STYLES else "vlog"
+    S = dict(STYLES[style])
+    if plan.get("music_volume") is not None:
+        S["music"] = float(plan["music_volume"])
+    W, H = out_size(plan.get("aspect") or S["aspect"], int(plan.get("resolution", 1080)))
+    tr = S["tr"]
+    mood = plan.get("mood") or S["mood"]
+    out_dir = Path(output).parent if output else HERE / "output"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    work = _work or Path(tempfile.mkdtemp(prefix="autoedit_", dir=out_dir))
+
+    # shots to use, in the chosen order, with safe lengths
+    chosen = []
+    for sh in sorted([x for x in plan["shots"] if x.get("keep", True)], key=lambda x: float(x.get("order", 0))):
+        c = dict(sh)
+        c["path"] = Path(sh["path"])
+        if not c["path"].exists():
+            log(f"  skipping {c['path'].name} (file not found)")
+            continue
+        speed = min(4.0, max(0.25, float(sh.get("speed") or 1.0)))
+        c["slow"] = 1.0 / speed
+        c["start"] = max(0.0, float(sh.get("start") or 0.0))
+        c["dur"] = max(2 * tr + 0.3, float(sh.get("dur") or 2.0))
+        if c["kind"] == "video":
+            info = dict(sh["info"])
+            avail = (info.get("duration", 1e9) - c["start"] - 0.05) * c["slow"]
+            if avail < 0.5:
+                log(f"  skipping {c['path'].name} (start is past the end of the clip)")
+                continue
+            c["dur"] = min(c["dur"], avail)
+            c["item"] = {"info": info}
+        else:
+            c["meta"] = dict(face_x=sh.get("face_x"), face_y=sh.get("face_y"))
+        chosen.append(c)
+    if not chosen:
+        raise ValueError("There are no shots left to put in the video.")
+    n = len(chosen)
+    offsets, acc = [], 0.0
+    for i, c in enumerate(chosen):
+        c["index"] = i
+        offsets.append(acc)
+        acc += c["dur"] - tr
+    total = offsets[-1] + chosen[-1]["dur"]
+    prog(0.55, f"Story: {n} shots, {total:.1f}s, style '{style}', {W}x{H}")
+    for c in chosen:
+        what = f"{c['start']:.1f}s-{c['start'] + c['dur'] / c['slow']:.1f}s" if c["kind"] == "video" else "photo"
+        log(f"  - {c['path'].name} [{what}]{' (talking)' if c.get('speech') else ''}"
+            f"{' (slow-motion)' if c['slow'] > 1.01 else ''}{' (fast)' if c['slow'] < 0.99 else ''}"
+            f"{' - looks like: ' + c['label'] if c.get('label') else ''}")
+
     # ---- render clips
     enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-pix_fmt", "yuv420p"]
     paths = [work / f"clip_{i:03d}.mp4" for i in range(n)]
@@ -1131,7 +1313,7 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
     def job(i):
         c = chosen[i]
         if c["kind"] == "photo":
-            render_photo_clip(c, paths[i], W, H, S, tr, enc, random.Random(rng.random() + i))
+            render_photo_clip(c, paths[i], W, H, S, tr, enc, random.Random(plan.get("seed", 0) + i))
         else:
             render_video_clip(c, paths[i], W, H, S, tr, enc)
         done[0] += 1
@@ -1141,40 +1323,33 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
     with ThreadPoolExecutor(workers) as ex:
         list(ex.map(job, range(n)))
 
-    # ---- subtitles on the final timeline
-    sub_lines = []
-    language = None
-    offsets = []
-    acc = 0.0
-    for c in chosen:
-        offsets.append(acc)
-        acc += c["dur"] - tr
-    if subtitles:
-        for c, off in zip(chosen, offsets):
-            trn = c.get("item", {}).get("transcript") if c["kind"] == "video" else None
-            if not trn or c.get("slow", 1.0) != 1.0:
-                continue
-            language = language or trn["language"]
-            src_a, src_b = c["start"], c["start"] + c["dur"]
-            words = [w for s in trn["segments"] for w in s["words"]
-                     if w["start"] >= src_a - 0.05 and w["end"] <= src_b + 0.15]
-            if not words:
-                continue
-            mapped = [dict(start=off + w["start"] - src_a, end=min(off + c["dur"], off + w["end"] - src_a),
-                           word=w["word"]) for w in words]
-            sub_lines += build_sub_lines(mapped, H > W)
-        sub_lines.sort(key=lambda s: s["start"])
-        for a, b in zip(sub_lines, sub_lines[1:]):
-            a["end"] = min(a["end"], b["start"])
+    # ---- subtitles and on-screen text on the final timeline
+    sub_lines, text_lines = [], []
+    for c, off in zip(chosen, offsets):
+        if plan.get("subtitles", True) and c["slow"] == 1.0:
+            for l in c.get("subs") or []:
+                a = off + float(l["start"]) - c["start"]
+                b = min(off + c["dur"], off + float(l["end"]) - c["start"])
+                if b - a > 0.2 and a >= off - 0.05 and str(l.get("text", "")).strip():
+                    sub_lines.append(dict(start=max(a, off), end=b, text=str(l["text"]).strip()))
+        if str(c.get("text") or "").strip():
+            text_lines.append(dict(start=off + (0.15 if c["index"] else 0.6), end=off + c["dur"] - tr * 0.6,
+                                   text=str(c["text"]).strip()))
+    sub_lines.sort(key=lambda s: s["start"])
+    for a, b in zip(sub_lines, sub_lines[1:]):
+        a["end"] = min(a["end"], b["start"])
 
     # ---- music track
     prog(0.86, "Mixing music")
     mus_wav = work / "music.wav"
-    if music_path:
-        run([FFMPEG, "-y", "-v", "error", "-stream_loop", "-1", "-i", str(work / "music_src.wav"), "-t", f"{total:.3f}",
+    music_path = Path(plan["music"]) if plan.get("music") else None
+    if music_path and music_path.exists():
+        run([FFMPEG, "-y", "-v", "error", "-stream_loop", "-1", "-i", str(music_path), "-t", f"{total:.3f}",
+             "-ac", "2", "-ar", "44100",
              "-af", f"afade=t=in:d=0.3,afade=t=out:st={max(0, total - 3):.3f}:d=3", str(mus_wav)])
     else:
-        data, sr, _, _ = music_gen.generate(total, mood, seed=rng.randint(0, 1 << 30))
+        music_path = None
+        data, sr, _, _ = music_gen.generate(total, mood, seed=plan.get("seed", 0))
         music_gen.write_wav(mus_wav, data, sr)
 
     # ---- overlays
@@ -1183,37 +1358,39 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
         letterbox_h = int(round((H - W / 2.39) / 2))
     extra_inputs = []
     title_dur = 0.0
-    if title:
+    if plan.get("title"):
         title_png = work / "title.png"
-        sub_txt = subtitle_text
-        if sub_txt is None:
-            d0 = next((x["time"] for x in ordered if x["time"]), None)
-            sub_txt = d0.strftime("%d %B %Y").lstrip("0") if d0 else ""
-        draw_text_png(title_png, W, H, title, kind="title", font_kind=S["title_font"], subtitle=sub_txt)
+        draw_text_png(title_png, W, H, plan["title"], kind="title", font_kind=S["title_font"],
+                      subtitle=plan.get("subtitle_text") or "")
         title_dur = min(4.0, max(2.5, total * 0.25))
         extra_inputs.append(("title", title_png))
-    subs_list = None
-    if sub_lines:
-        sub_dir = work / "subs"
-        sub_dir.mkdir()
-        blank = sub_dir / "blank.png"
+
+    def make_track(name, lines, **kw):
+        if not lines:
+            return None
+        d = work / name
+        d.mkdir(exist_ok=True)
+        blank = d / "blank.png"
         draw_text_png(blank, W, H, "")
-        entries = []
-        cur = 0.0
-        for k, ln in enumerate(sub_lines):
+        entries, cur = [], 0.0
+        for k, ln in enumerate(lines):
             if ln["start"] > cur + 0.01:
                 entries.append((blank, ln["start"] - cur))
-            png = sub_dir / f"s{k:04d}.png"
-            draw_text_png(png, W, H, ln["text"], style_name=S["sub_style"], letterbox=letterbox_h)
+            png = d / f"s{k:04d}.png"
+            draw_text_png(png, W, H, ln["text"], **kw)
             entries.append((png, ln["end"] - max(ln["start"], cur)))
             cur = ln["end"]
         entries.append((blank, max(0.1, total - cur)))
-        subs_list = work / "subs.txt"
-        with open(subs_list, "w", encoding="utf-8") as f:
+        lst = work / f"{name}.txt"
+        with open(lst, "w", encoding="utf-8") as f:
             f.write("ffconcat version 1.0\n")
-            for p, d in entries:
-                f.write(f"file '{p.as_posix()}'\nduration {max(d, 0.04):.3f}\n")
+            for p, dd in entries:
+                f.write(f"file '{p.as_posix()}'\nduration {max(dd, 0.04):.3f}\n")
             f.write(f"file '{blank.as_posix()}'\n")
+        return lst
+
+    tracks = [t for t in (make_track("subs", sub_lines, style_name=S["sub_style"], letterbox=letterbox_h),
+                          make_track("texts", text_lines, kind="caption", letterbox=letterbox_h)) if t]
 
     # ---- final assembly
     prog(0.88, "Putting it all together (transitions, effects, subtitles, music)")
@@ -1228,7 +1405,9 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
         fc.append(f"[{i}:v]settb=AVTB,fps={FPS},format=yuv420p[v{i}]")
     last = "v0"
     for i in range(1, n):
-        trans = rng.choice(S["transitions"])
+        trans = chosen[i].get("transition") or "auto"
+        if trans not in XFADE_TRANSITIONS:
+            trans = rng.choice(S["transitions"])
         fc.append(f"[{last}][v{i}]xfade=transition={trans}:duration={tr:.3f}:offset={offsets[i]:.3f}[x{i}]")
         last = f"x{i}"
     post = []
@@ -1250,23 +1429,22 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
         fc.append(f"[{last}][t{idx}]overlay=0:0:eof_action=pass[o{idx}]")
         last = f"o{idx}"
         idx += 1
-    if subs_list:
-        cmd += ["-f", "concat", "-safe", "0", "-i", str(subs_list)]
-        fc.append(f"[{idx}:v]format=rgba[subs]")
-        fc.append(f"[{last}][subs]overlay=0:0:eof_action=pass:repeatlast=1[os]")
-        last = "os"
+    for lst in tracks:
+        cmd += ["-f", "concat", "-safe", "0", "-i", str(lst)]
+        fc.append(f"[{idx}:v]format=rgba[tk{idx}]")
+        fc.append(f"[{last}][tk{idx}]overlay=0:0:eof_action=pass:repeatlast=1[os{idx}]")
+        last = f"os{idx}"
         idx += 1
     fc.append(f"[{last}]format=yuv420p[vout]")
     # audio
-    has_voice = any(c["kind"] == "video" and c["item"]["info"]["audio"] and c.get("slow", 1.0) == 1.0
+    has_voice = any(c["kind"] == "video" and c["item"]["info"]["audio"] and c["slow"] == 1.0
                     and S["voice"] > 0 for c in chosen)
     for i, off in enumerate(offsets):
         ms = int(round(off * 1000))
         fc.append(f"[{i}:a]adelay={ms}|{ms}[a{i}]")
     fc.append("".join(f"[a{i}]" for i in range(n)) + f"amix=inputs={n}:normalize=0:dropout_transition=0[voice]"
               if n > 1 else "[a0]anull[voice]")
-    mv = S["music"]
-    fc.append(f"[{mi}:a]aresample=48000,volume={mv}[mus]")
+    fc.append(f"[{mi}:a]aresample=48000,volume={S['music']}[mus]")
     if has_voice:
         fc.append("[voice]asplit=2[vk][vs]")
         fc.append("[mus][vs]sidechaincompress=threshold=0.015:ratio=10:attack=15:release=450:makeup=1[duck]")
@@ -1278,7 +1456,7 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
               f"loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]")
 
     if output is None:
-        safe = re.sub(r"[^\w\-]+", "_", title or "my_video").strip("_") or "my_video"
+        safe = re.sub(r"[^\w\-]+", "_", plan.get("title") or "my_video").strip("_") or "my_video"
         output = out_dir / f"{safe}_{style}_{dt.datetime.now():%Y%m%d_%H%M%S}.mp4"
     output = Path(output)
     script = work / "filter.txt"
@@ -1295,13 +1473,15 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
         with open(srt_path, "w", encoding="utf-8") as f:
             for k, ln in enumerate(sub_lines, 1):
                 f.write(f"{k}\n{srt_time(ln['start'])} --> {srt_time(ln['end'])}\n{ln['text']}\n\n")
+    plan_path = output.with_suffix(".autoedit.json")
+    plan_path.write_text(json.dumps(plan, indent=1, ensure_ascii=False), encoding="utf-8")
     if not keep_temp:
         shutil.rmtree(work, ignore_errors=True)
     secs = time.time() - t_start
-    summary = dict(output=str(output), srt=str(srt_path) if srt_path else None, style=style, mood=mood,
-                   music=(music_path.name if music_path else f"new royalty-free {mood} track"),
+    summary = dict(output=str(output), srt=str(srt_path) if srt_path else None, plan=str(plan_path),
+                   style=style, mood=mood, music=(music_path.name if music_path else f"new royalty-free {mood} track"),
                    shots=n, duration=round(total, 1), size=f"{W}x{H}", subtitles=len(sub_lines),
-                   language=language, render_seconds=round(secs, 1))
+                   language=plan.get("language"), render_seconds=round(secs, 1))
     prog(1.0, f"Done in {secs:.0f}s -> {output}")
     return summary
 

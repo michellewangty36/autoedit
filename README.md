@@ -32,6 +32,26 @@ Keep the black window open while you use AutoEdit. Closing it stops the app.
 | 🔊 **Loudness** | It sets the volume to the level YouTube, Instagram and TikTok expect. |
 | 📅 **Story order** | It puts everything in the order it was filmed, using the date inside each photo or video. |
 
+## ✂️ Edit it myself
+
+After a video is made, open the **✂️ Edit it myself** tab. You'll see a picture of every shot and a table where you can change these things:
+- **Keep:** untick it to remove a shot.
+- **Order:** type a new number to move a shot.
+- **Start at** and **Length:** choose which part of a clip is used and how long it lasts.
+- **Speed:** 0.5 is slow motion and 2 is fast.
+- **Transition in:** how the shot appears, such as `circleopen`, `zoomin`, `slideleft` or `fadewhite`.
+- **Effect:** `zoom in`, `punch zoom`, `shake`, `flash`, `glow`, `glitch`, `vintage`, `black & white`, `sepia`, `vivid`, `warm`, `cool`, `blur in`, `mirror` or `reverse`.
+- **Text on screen:** your own caption for that shot.
+
+Below the table you can also:
+- Fix any subtitle words or timing.
+- Change the style, title, music mood, volume or song.
+- Add more photos or videos.
+
+Then press **🎬 Re-make video with my changes**. If you want more energy, press **✨ Make it more lively**. It adds lively transitions, effects on the beat, quicker shots and upbeat music, and you can still change everything afterwards.
+
+You can also start from scratch: just add your clips in this tab. Every video saves a project file (`.autoedit.json`) in the `output` folder, so you can open it later with **📂 Open project** and keep editing.
+
 ## 🧠 Smart AI (free, offline)
 
 AutoEdit has a free AI built in that looks at every shot and understands what's in it, such as sunsets, food, friends laughing, pets, a birthday cake or a landmark.
