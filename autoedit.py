@@ -369,6 +369,8 @@ def analyse_video(path, info, rate=4.0):
         for k, v in (("sharp", sharp), ("bright", float(g.mean() / 255)), ("motion", motion), ("shake", shake),
                      ("face", nf), ("face_x", fx), ("sat", sat), ("cut", cut)):
             m[k].append(v)
+        if i % int(rate) == 0:  # 1 frame per second for the smart AI
+            m.setdefault("thumbs", []).append(rgb.copy())
         prev_g, prev_h = g, hist
         i += 1
     proc.wait()
@@ -456,6 +458,8 @@ def sample_scores(m, levels, speech_mask, norm):
     s[max(0, n - 2):] -= 0.3
     if speech_mask is not None:
         s += 0.4 * speech_mask[:n]
+    if m.get("ai") is not None:  # smart AI: what is actually in the shot
+        s += 0.5 * np.asarray(m["ai"])[:n]
     return s
 
 
@@ -536,6 +540,13 @@ def make_candidates(item, style, norm):
         fx = [v for v in m["face_x"][ia:ib] if v is not None]
         c["face_x"] = float(np.median(fx)) if fx else None
         c["shaky"] = float(np.mean(m["shake"][ia:ib])) > 0.012
+        if m.get("ai_emb") is not None and len(m["ai_emb"]):
+            ja = min(int(c["start"]), len(m["ai_emb"]) - 1)
+            jb = max(ja + 1, min(int(math.ceil(c["start"] + c["dur"])), len(m["ai_emb"])))
+            e = m["ai_emb"][ja:jb].mean(axis=0)
+            c["emb"] = e / (np.linalg.norm(e) + 1e-9)
+            labs = m["ai_label"][ja:jb]
+            c["label"] = max(set(labs), key=labs.count) if labs else None
         c["time_key"] = item["time_key"]
     return cands
 
@@ -561,7 +572,9 @@ def analyse_photo(path):
         if len(faces):
             face_x = float(np.mean([(x + w / 2) / g.shape[1] for (x, y, w, h) in faces]))
             face_y = float(np.mean([(y + h / 2) / g.shape[0] for (x, y, w, h) in faces]))
-    return dict(size=im.size, sharp=sharp, face_x=face_x, face_y=face_y, hash=dhash(small))
+    thumb = small.copy()
+    thumb.thumbnail((320, 320))
+    return dict(size=im.size, sharp=sharp, face_x=face_x, face_y=face_y, hash=dhash(small), thumb=thumb)
 
 
 # ------------------------------------------------------------------ rendering: clips
@@ -845,7 +858,8 @@ def find_music(mood):
 # ------------------------------------------------------------------ main pipeline
 def make_video(inputs, output=None, style="auto", aspect=None, length=None, title=None, subtitle_text=None,
                music=None, mood=None, subtitles=True, sub_language=None, translate=False, whisper_model="small",
-               resolution=1080, seed=None, keep_temp=False, music_volume=None, progress=None, log=print):
+               resolution=1080, seed=None, keep_temp=False, music_volume=None, progress=None, log=print,
+               smart=True, focus=None):
     t_start = time.time()
     rng = random.Random(seed if seed is not None else int(time.time()))
 
@@ -893,10 +907,47 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
             log(f"  skipping {p.name} ({e})")
             continue
         photo_items.append(dict(kind="photo", path=p, meta=meta, time=photo_time(p)))
+    # ---- smart AI: understand what is in every shot (free, runs on this computer)
+    if smart:
+        prog(0.28, "Smart AI is looking at your shots" + (f" (focus: {focus})" if focus else ""))
+        try:
+            import ai_vision
+            eye = ai_vision.load(focus, log)
+        except Exception as e:
+            eye = None
+            log(f"  (smart AI skipped: {e})")
+        if eye is not None:
+            try:
+                for it in items:
+                    thumbs = it["m"].pop("thumbs", [])
+                    emb = eye.embed_images(thumbs)
+                    sc, labels = eye.score(emb)
+                    n = it["m"]["n"]
+                    if len(sc):
+                        t1 = np.arange(len(sc)) * it["m"]["rate"]
+                        it["m"]["ai"] = np.interp(np.arange(n), t1, sc)
+                        it["m"]["ai_emb"], it["m"]["ai_label"] = emb, labels
+                if photo_items:
+                    emb = eye.embed_images([ph["meta"]["thumb"] for ph in photo_items])
+                    sc, labels = eye.score(emb)
+                    for ph, e, v, lab in zip(photo_items, emb, sc, labels):
+                        ph["meta"].update(emb=e, ai=float(v), label=lab)
+                    # drop accidental photos (floor, pocket, screenshots) when there are enough good ones
+                    good = [ph for ph in photo_items if ph["meta"]["ai"] > -0.6]
+                    if len(good) >= 3 and len(good) < len(photo_items):
+                        log(f"  smart AI left out {len(photo_items) - len(good)} accidental-looking photo(s)")
+                        photo_items = good
+            except Exception as e:
+                log(f"  (smart AI skipped: {e})")
+    for it in items:
+        it["m"].pop("thumbs", None)
+
     # drop near-duplicate photos (bursts) - keep the sharpest
     kept = []
     for ph in sorted(photo_items, key=lambda x: -x["meta"]["sharp"]):
-        if all(np.count_nonzero(ph["meta"]["hash"] != k["meta"]["hash"]) > 6 for k in kept):
+        if all(np.count_nonzero(ph["meta"]["hash"] != k["meta"]["hash"]) > 6 and
+               not ("emb" in ph["meta"] and "emb" in k["meta"] and float(ph["meta"]["emb"] @ k["meta"]["emb"]) > 0.97)
+               for k in kept):
             kept.append(ph)
     if len(kept) < len(photo_items):
         log(f"  removed {len(photo_items) - len(kept)} near-duplicate photo(s)")
@@ -969,7 +1020,10 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
         max_ph = max(1, int(0.85 * target / max(1.4, P * 0.7)))
         P = max(1.4, min(P, 0.85 * target / len(photo_items)))
         if len(photo_items) > max_ph:
-            photo_items = sorted(photo_items, key=lambda x: -x["meta"]["sharp"])[:max_ph]
+            ps = np.array([x["meta"]["sharp"] for x in photo_items])
+            ps = ps / (np.percentile(ps, 75) + 1e-6)
+            rank = {id(x): min(v, 1.5) + x["meta"].get("ai", 0.0) for x, v in zip(photo_items, ps)}
+            photo_items = sorted(photo_items, key=lambda x: -rank[id(x)])[:max_ph]
     budget = target - len(photo_items) * (P - tr) - tr
     # videos: best clip of every video first, then by score
     chosen, used = [], 0.0
@@ -982,7 +1036,11 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
     rest = sorted([c for c in cands if not any(c is f for f in firsts)], key=lambda c: -c["score"])
     speech_cap = 0.7 * budget
     speech_used = 0.0
-    for c in sorted(firsts, key=lambda c: -c["score"]) + rest:
+    queue = sorted(firsts, key=lambda c: -c["score"]) + rest
+    qi = 0
+    while qi < len(queue):
+        c = queue[qi]
+        qi += 1
         d_eff = c["dur"] - tr
         if used + d_eff > budget + 0.5 and chosen:
             continue
@@ -991,13 +1049,18 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
         if any(o["path"] == c["path"] and o["start"] < c["start"] + c["dur"] and c["start"] < o["start"] + o["dur"]
                for o in chosen):
             continue
+        if not c["speech"] and c.get("emb") is not None and not c.get("_again") and any(
+                o.get("emb") is not None and float(o["emb"] @ c["emb"]) > 0.94 for o in chosen):
+            c["_again"] = True
+            queue.append(c)  # looks the same as a shot we already have - only used if time is left
+            continue
         chosen.append(c)
         used += d_eff
         if c["speech"]:
             speech_used += c["dur"]
     for ph in photo_items:
         chosen.append(dict(kind="photo", path=ph["path"], meta=ph["meta"], dur=P, time_key=ph["time_key"],
-                           speech=False, start=0.0, score=0))
+                           speech=False, start=0.0, score=0, label=ph["meta"].get("label")))
     if not chosen:
         raise ValueError("Nothing usable was found in the media.")
     chosen.sort(key=lambda c: (c["time_key"], c.get("start", 0)))
@@ -1057,7 +1120,8 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
     for c in chosen:
         what = f"{c['start']:.1f}s-{c['start'] + c['dur'] / c.get('slow', 1.0):.1f}s" if c["kind"] == "video" else "photo"
         log(f"  - {Path(c['path']).name} [{what}]{' (talking)' if c['speech'] else ''}"
-            f"{' (slow-motion)' if c.get('slow', 1.0) != 1.0 else ''}")
+            f"{' (slow-motion)' if c.get('slow', 1.0) != 1.0 else ''}"
+            f"{' - looks like: ' + c['label'] if c.get('label') else ''}")
 
     # ---- render clips
     enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-pix_fmt", "yuv420p"]
@@ -1270,9 +1334,12 @@ def main():
     ap.add_argument("-r", "--resolution", type=int, default=1080, help="720, 1080 or 2160")
     ap.add_argument("--seed", type=int, help="same seed = same edit")
     ap.add_argument("--keep-temp", action="store_true")
+    ap.add_argument("--focus", help='what the smart AI should favour, e.g. "food, beach, my dog"')
+    ap.add_argument("--no-ai", action="store_true", help="turn off the smart AI")
     a = ap.parse_args()
     s = make_video(a.inputs, a.output, a.style, a.aspect, a.length, a.title, a.subtitle_text, a.music, a.mood,
-                   not a.no_subs, a.lang, a.translate, a.whisper, a.resolution, a.seed, a.keep_temp, a.music_volume)
+                   not a.no_subs, a.lang, a.translate, a.whisper, a.resolution, a.seed, a.keep_temp, a.music_volume,
+                   smart=not a.no_ai, focus=a.focus)
     print(json.dumps(s, indent=2, ensure_ascii=False))
 
 

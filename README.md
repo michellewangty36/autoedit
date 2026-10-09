@@ -32,6 +32,16 @@ Keep the black window open while you use AutoEdit. Closing it stops the app.
 | 🔊 **Loudness** | It sets the volume to the level YouTube, Instagram and TikTok expect. |
 | 📅 **Story order** | It puts everything in the order it was filmed, using the date inside each photo or video. |
 
+## 🧠 Smart AI (free, offline)
+
+AutoEdit has a free AI built in that looks at every shot and understands what's in it, such as sunsets, food, friends laughing, pets, a birthday cake or a landmark.
+- It favours real highlights and leaves out accidental shots, like the floor, the inside of a pocket or a screenshot.
+- It avoids using two shots that look almost the same.
+- In the box **"What should it focus on?"**, type things like `food, beach, my dog` and it gives those moments priority.
+- It runs on your own laptop. It's free and doesn't use your Claude usage. It needs internet only once, to download itself (about 0.6 GB, during setup).
+- In "What it did" you can see what the AI thought each shot was.
+- To turn it off, untick **Smart AI**.
+
 ## Offline and online
 
 - **Offline:** after the first setup, everything works without internet: editing, effects, music and subtitles. The first setup needs internet once to download the parts it uses, including the speech model for subtitles.

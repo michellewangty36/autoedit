@@ -16,7 +16,7 @@ import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-KEEP = {"output", "music", "fonts", ".venv", "update.json", "__pycache__"}
+KEEP = {"output", "music", "fonts", "models", ".venv", "update.json", "__pycache__"}
 
 
 def _ctx():

@@ -27,7 +27,7 @@ LANG_CHOICES = [("Auto-detect", ""), ("English", "en"), ("Chinese 中文", "zh")
                 ("Hindi", "hi"), ("Spanish", "es"), ("French", "fr")]
 
 
-def make(files, style, aspect, length, title, subtitle_text, music_file, mood, subs, lang, translate,
+def make(files, style, focus, smart, aspect, length, title, subtitle_text, music_file, mood, subs, lang, translate,
          quality, music_volume, progress=gr.Progress()):
     if not files:
         raise gr.Error("Please add some photos or videos first.")
@@ -48,7 +48,8 @@ def make(files, style, aspect, length, title, subtitle_text, music_file, mood, s
             music=(music_file if isinstance(music_file, str) else getattr(music_file, "name", None)) if music_file else None,
             mood=None if mood == "default" else mood, subtitles=subs, sub_language=lang or None,
             translate=translate, resolution=res, music_volume=music_volume / 100.0,
-            progress=lambda frac, msg: progress(frac, desc=msg), log=log)
+            progress=lambda frac, msg: progress(frac, desc=msg), log=log,
+            smart=smart, focus=focus or None)
     except Exception as e:
         raise gr.Error(f"Something went wrong: {e}")
     finally:
@@ -68,6 +69,9 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
         with gr.Column(scale=1):
             files = gr.File(label="1. Your photos & videos", file_count="multiple", type="filepath")
             style = gr.Dropdown(STYLE_CHOICES, value="auto", label="2. Style")
+            focus = gr.Textbox(label="What should it focus on? (optional)",
+                               placeholder="e.g. food, beach, sunset, my dog")
+            smart = gr.Checkbox(value=True, label="🧠 Smart AI: understands what's in your shots (free, offline)")
             title = gr.Textbox(label="Title (optional)", placeholder="e.g. Bali Trip 2026")
             subtitle_text = gr.Textbox(label="Small line under the title (optional, default: the date)")
             with gr.Accordion("More options", open=False):
@@ -89,7 +93,7 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
             downloads = gr.File(label="Download (video + subtitle file)", file_count="multiple")
             with gr.Accordion("What it did", open=False):
                 details = gr.Textbox(lines=14, show_label=False)
-    go.click(make, [files, style, aspect, length, title, subtitle_text, music_file, mood, subs, lang, translate,
+    go.click(make, [files, style, focus, smart, aspect, length, title, subtitle_text, music_file, mood, subs, lang, translate,
                     quality, music_volume], [video, downloads, info, details])
 
 if __name__ == "__main__":
