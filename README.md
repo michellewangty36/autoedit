@@ -79,6 +79,9 @@ AutoEdit has a free AI built in that looks at every shot and understands what's 
 - **Y2K**: the digicam trend, with flashy colours, pixel and blur transitions, and grain.
 - **Moody**: a dark aesthetic with muted colours and slow fades to black.
 - **Dreamy**: a soft glow, pastel tones and gentle fades.
+- **Velocity**: the velocity-edit trend, vertical, with very fast beat cuts, slow-motion highlights, crisp contrast and white flashes.
+- **Clean**: the clean-girl look, bright and airy with soft neutral colours and simple transitions.
+- **Cozy**: autumn vibes with warm amber colours, soft grain and gentle fades.
 
 ## Tips
 

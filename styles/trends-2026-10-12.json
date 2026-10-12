@@ -1,0 +1,31 @@
+{
+  "about": "Style pack, October 2026 week 2. Velocity edits, the clean-girl look and cosy autumn amber.",
+  "moods": {
+    "cozy": {"extends": "chill", "bpm": 80, "key": "D", "prog": [0, 3, 5, 4]}
+  },
+  "styles": {
+    "velocity": {
+      "extends": "reels",
+      "desc": "Velocity edit: very fast beat cuts with slow-motion highlights, crisp contrast, white flashes",
+      "clip": 1.2, "photo": 1.3, "tr": 0.2,
+      "transitions": ["zoomin", "fadewhite", "hblur", "squeezeh", "zoomin", "pixelize"],
+      "grade": "eq=contrast=1.2:saturation=1.3:brightness=0.01,unsharp=5:5:0.9",
+      "slowmo": true, "mood": "upbeat"
+    },
+    "clean": {
+      "extends": "vlog",
+      "desc": "Clean-girl aesthetic: bright, airy, soft neutral tones, minimal transitions",
+      "clip": 3.0, "photo": 3.0, "tr": 0.5,
+      "transitions": ["fade", "dissolve", "smoothleft", "fadewhite"],
+      "grade": "eq=contrast=0.94:saturation=0.82:brightness=0.06:gamma=1.05,colorbalance=rh=0.03:gh=0.02:bh=0.01",
+      "mood": "chill"
+    },
+    "cozy": {
+      "extends": "chill",
+      "desc": "Cosy autumn: warm amber tones, soft grain, slow pans, gentle fades",
+      "transitions": ["fade", "dissolve", "smoothright", "fadeblack"],
+      "grade": "eq=contrast=1.04:saturation=0.95:gamma=0.98,colorbalance=rs=0.06:gs=0.02:bs=-0.06:rm=0.07:gm=0.02:bm=-0.07:rh=0.04:bh=-0.05",
+      "grain": 7, "vignette": true, "mood": "cozy"
+    }
+  }
+}
