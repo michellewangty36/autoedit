@@ -1,0 +1,24 @@
+{
+  "about": "Style pack, October 2026 week 3. Halloween season spooky look and the '2026 is the new 2016' throwback filter.",
+  "moods": {
+    "spooky": {"extends": "cinematic", "bpm": 88, "key": "E", "minor": true, "prog": [0, 1, 0, 6]}
+  },
+  "styles": {
+    "spooky": {
+      "extends": "cinematic",
+      "desc": "Halloween spooky: dark green-purple shadows, flicker grain, slow reveals and fades to black",
+      "letterbox": false, "clip": 3.0, "photo": 3.2, "tr": 0.6,
+      "transitions": ["fadeblack", "fadegrays", "hblur", "fadeblack", "circleclose"],
+      "grade": "eq=contrast=1.22:saturation=0.6:gamma=0.85:brightness=-0.04,colorbalance=rs=0.05:gs=-0.03:bs=0.09:gm=0.04",
+      "grain": 12, "vignette": true, "mood": "spooky"
+    },
+    "throwback": {
+      "extends": "vlog",
+      "desc": "2016 throwback: bright, warm, extra-saturated Instagram-filter look with quick fun cuts",
+      "clip": 2.2, "photo": 2.4, "tr": 0.35,
+      "transitions": ["slideleft", "slideright", "zoomin", "fadewhite", "circleopen", "wipeleft"],
+      "grade": "eq=contrast=1.1:saturation=1.5:brightness=0.06,colorbalance=rh=0.06:gh=0.03:bh=-0.04:rm=0.03,unsharp=5:5:0.5",
+      "vignette": true, "mood": "happy"
+    }
+  }
+}

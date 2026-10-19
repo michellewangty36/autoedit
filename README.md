@@ -82,6 +82,8 @@ AutoEdit has a free AI built in that looks at every shot and understands what's 
 - **Velocity**: the velocity-edit trend, vertical, with very fast beat cuts, slow-motion highlights, crisp contrast and white flashes.
 - **Clean**: the clean-girl look, bright and airy with soft neutral colours and simple transitions.
 - **Cozy**: autumn vibes with warm amber colours, soft grain and gentle fades.
+- **Spooky**: for Halloween, with dark green and purple shadows, flickering grain, slow reveals and eerie music.
+- **Throwback**: the "2026 is the new 2016" trend, a bright, warm, extra-saturated Instagram-filter look with quick fun cuts.
 
 ## Tips
 
