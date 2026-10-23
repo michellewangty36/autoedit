@@ -52,6 +52,20 @@ Then press **🎬 Re-make video with my changes**. If you want more energy, pres
 
 You can also start from scratch: just add your clips in this tab. Every video saves a project file (`.autoedit.json`) in the `output` folder, so you can open it later with **📂 Open project** and keep editing.
 
+## 📁 Sort my photos
+
+The **📁 Sort my photos** tab tidies a messy phone album:
+- It makes trip folders such as **Singapore Trip 23-25.10.2026**, using the date and place saved in each photo. Photos from home go into month folders like **2026-10 October**, and screenshots go into their own folder.
+- WhatsApp photos are sorted too, by the date in their file name. WhatsApp copies of photos you already have are skipped.
+- It only makes copies, so your originals are never moved or deleted. Running it again adds only the new photos.
+- You can rename any folder, and new photos from the same trip still go into it.
+- Choose where the tidy folders go, for example your external hard disk.
+- Pick any album and press **🎬 Make a vlog from this album**.
+
+**Getting photos from an Android phone:** install OneDrive on the phone, then go to **Settings → Camera backup**. Turn it on, tap **Back up device folders** and tick WhatsApp Images, WhatsApp Video and Screenshots. Sign in to OneDrive on the computer with the same account. AutoEdit then sorts new photos every time it opens. You can also plug the phone in and use the Windows **Photos** app's **Import**, or drop photos straight into the tab.
+
+Place names come from GeoNames (geonames.org, CC BY 4.0) and work offline.
+
 ## 🧠 Smart AI (free, offline)
 
 AutoEdit has a free AI built in that looks at every shot and understands what's in it, such as sunsets, food, friends laughing, pets, a birthday cake or a landmark.

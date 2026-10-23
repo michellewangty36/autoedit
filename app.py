@@ -3,11 +3,14 @@ AutoEdit web app.
   Tab 1 "Make it for me": upload photos & videos, pick a style, press the button.
   Tab 2 "Edit it myself": change the shots, order, lengths, speed, transitions, text and subtitles,
                           add more clips, then re-make the video.
+  Tab 3 "Sort my photos": tidies your phone's photos into trip and month folders, then makes a vlog
+                          from any folder with one click.
 Start it with the START file for your computer, or:  python app.py
 It opens in your web browser at http://127.0.0.1:7860 (runs only on your computer).
 """
 import datetime as dt
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -20,6 +23,7 @@ import gradio as gr
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import autoedit  # noqa: E402
+import sorter  # noqa: E402
 
 OUT = HERE / "output"
 PROJECTS = OUT / "projects"
@@ -315,7 +319,111 @@ def open_project(f):
     return edit_outputs(plan, msg)
 
 
-# ------------------------------------------------------------------ look & feel
+# ------------------------------------------------------------------ sort my photos
+def _clean_path(t):
+    return (t or "").strip().strip('"').strip()
+
+
+def album_choices(lib):
+    out = []
+    for a in sorter.albums(lib):
+        media = sorter.album_media(a["path"])
+        if not media:
+            continue
+        n_vid = sum(p.suffix.lower() in sorter.VIDEO_EXT for p in media)
+        n_pic = len(media) - n_vid
+        out.append((f"{a['name']}  ({n_pic} photo{'s' * (n_pic != 1)}, {n_vid} video{'s' * (n_vid != 1)})",
+                    a["path"]))
+    return out
+
+
+def _album_update(lib, keep=None):
+    ch = album_choices(lib)
+    vals = [v for _, v in ch]
+    return gr.update(choices=ch, value=keep if keep in vals else (vals[0] if vals else None))
+
+
+def sort_now(sources_text, library, home, auto, extra, progress=gr.Progress()):
+    sources = [_clean_path(l) for l in (sources_text or "").splitlines() if _clean_path(l)]
+    lib = _clean_path(library) or sorter.default_settings()["library"]
+    sorter.save_settings({"sources": sources, "library": lib, "home": (home or "").strip(), "auto": bool(auto)})
+    extra_files = [file_path(f) for f in (extra or []) if file_path(f)]
+    if not sources and not extra_files:
+        raise gr.Error("Add a folder to sort from, or drop some photos in the box.")
+    try:
+        r = sorter.sort_photos(sources, lib, home, progress=lambda f, m: progress(f, desc=m),
+                               extra_files=extra_files)
+    except Exception as e:
+        raise gr.Error(f"Sorting stopped: {e}")
+    return sorter.summary_text(r), _album_update(lib), None
+
+
+def auto_sort(current):
+    s = sorter.load_settings()
+    msg = gr.update()
+    if s.get("auto") and s.get("sources"):
+        r = sorter.sort_photos(s["sources"], s["library"], s.get("home", ""), log=lambda m: None)
+        if not r.get("busy") and r.get("new"):
+            msg = "Sorted automatically just now.\n\n" + sorter.summary_text(r)
+    return msg, _album_update(s["library"], current)
+
+
+def open_album(folder):
+    folder = folder or sorter.load_settings()["library"]
+    if not Path(folder).exists():
+        raise gr.Error("That folder doesn't exist yet. Press Sort now first.")
+    try:
+        if os.name == "nt":
+            os.startfile(folder)  # noqa
+        else:
+            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", folder])
+    except Exception as e:
+        raise gr.Error(f"Couldn't open the folder: {e}")
+
+
+def make_album(folder, style, focus, smart, quality, progress=gr.Progress()):
+    if not folder or not Path(folder).exists():
+        raise gr.Error("Pick an album first.")
+    name = Path(folder).name
+    m = re.match(r"^(.*?)\s+([\d][\d.\-]*\d)$", name)
+    title, sub = (m[1], m[2]) if m else (name, None)
+    pdir = new_project_dir()
+    log_lines = []
+    try:
+        summary = autoedit.make_video(
+            [folder], style=style, title=title, subtitle_text=sub, resolution=QUALITY[quality],
+            progress=lambda frac, msg: progress(frac, desc=msg), log=log_lines.append,
+            smart=smart, focus=focus or None)
+    except Exception as e:
+        raise gr.Error(f"Something went wrong: {e}")
+    plan = autoedit.load_plan(summary["plan"])
+    plan["_dir"] = str(pdir)
+    save_plan(plan)
+    info = (f"**Done!** {summary['duration']}s · {summary['shots']} shots · style *{summary['style']}*\n\n"
+            f"Saved to `{summary['output']}`\n\nWant to change something? Open the **✂️ Edit it myself** tab.")
+    downloads = [summary["output"]] + ([summary["srt"]] if summary["srt"] else [])
+    return (summary["output"], downloads, info) + edit_outputs(
+        plan, f"Loaded your **{name}** vlog. Change anything below, then press **Re-make video**.")
+
+
+SORT_HELP = """
+**Get your phone's photos onto this computer (Android):**
+- **Automatic:** install **OneDrive** on your phone → tap your picture → **Settings → Camera backup** → turn it on,
+  then tap **Back up device folders** and tick **WhatsApp Images**, **WhatsApp Video**, **Screenshots** and any
+  others. Sign in to OneDrive on this computer with the same account. New photos then arrive by themselves
+  and get sorted every time AutoEdit opens (and every 15 minutes while it's open).
+- **With a cable:** plug the phone in, choose **File transfer** on the phone, then open the **Photos** app on
+  this computer → **Import**. Or drop photos into the box on this page.
+
+Free OneDrive holds 5 GB. When it's full, the tidy copies here are safe, so you can clear out OneDrive's
+Camera Roll online to make room.
+
+Your originals are never moved or deleted; the sorter only makes tidy copies. Rename any folder as you like:
+new photos from the same trip still go into it.
+"""
+
+
+
 THEME = gr.themes.Soft(primary_hue="fuchsia", secondary_hue="cyan", neutral_hue="slate", radius_size="lg",
                        font=["Poppins", "Segoe UI", "system-ui", "sans-serif"])
 
@@ -443,6 +551,41 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
             e_video = gr.Video(label="Your edited video")
             e_downloads = gr.File(label="Download", file_count="multiple")
 
+        with gr.Tab("📁 Sort my photos"):
+            _s = sorter.load_settings()
+            gr.Markdown("Tidies all your photos and videos into folders like **Singapore Trip 23-25.10.2026** "
+                        "and **2026-10 October**, using the date and place saved in each photo. WhatsApp photos "
+                        "and screenshots are sorted too.")
+            with gr.Row():
+                with gr.Column(scale=1):
+                    s_sources = gr.Textbox("\n".join(_s["sources"]), lines=3,
+                                           label="Sort photos from these folders (one per line)")
+                    s_library = gr.Textbox(_s["library"], label="Put the tidy folders here (e.g. your hard disk)")
+                    s_home = gr.Textbox(_s.get("home", ""), label="Home town (optional, e.g. Kuala Lumpur)",
+                                        placeholder="Leave empty and it works it out from your photos")
+                    s_auto = gr.Checkbox(_s.get("auto", True), label="Sort automatically when AutoEdit opens")
+                    s_extra = gr.File(label="Or drop photos and videos here", file_count="multiple",
+                                      type="filepath")
+                    s_go = gr.Button("📁 Sort now", variant="primary", size="lg")
+                    s_msg = gr.Markdown()
+                    with gr.Accordion("How do my phone's photos get here?", open=False):
+                        gr.Markdown(SORT_HELP)
+                with gr.Column(scale=1):
+                    s_album = gr.Dropdown(album_choices(_s["library"]), label="Your albums (newest first)")
+                    with gr.Row():
+                        s_style = gr.Dropdown(STYLE_CHOICES, value="vlog", label="Style")
+                        s_quality = gr.Radio(list(QUALITY), value="1080p Full HD", label="Quality")
+                    s_focus = gr.Textbox(label="What should it focus on? (optional)",
+                                         placeholder="e.g. food, Merlion, family")
+                    s_smart = gr.Checkbox(value=True, label="🧠 Smart AI picks the best moments")
+                    with gr.Row():
+                        s_open = gr.Button("📂 Open folder", variant="secondary")
+                        s_make = gr.Button("🎬 Make a vlog from this album", variant="primary", size="lg")
+                    s_video = gr.Video(label="Your vlog")
+                    s_info = gr.Markdown()
+                    s_downloads = gr.File(label="Download", file_count="multiple")
+            s_timer = gr.Timer(900)
+
     edit_outs = [plan_state, shot_table, sub_table, gallery, e_style, e_title, e_volume, e_mood, edit_msg]
     go.click(make, [files, style, focus, smart, aspect, length, title, subtitle_text, music_file, mood, subs, lang,
                     translate, quality, music_volume], [video, downloads, info, details] + edit_outs)
@@ -452,6 +595,12 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                      [e_video, e_downloads] + edit_outs)
     add_btn.click(add_clips, [plan_state, shot_table, sub_table, add_files], edit_outs)
     open_btn.click(open_project, [open_file], edit_outs)
+    s_go.click(sort_now, [s_sources, s_library, s_home, s_auto, s_extra], [s_msg, s_album, s_extra])
+    s_open.click(open_album, [s_album], None)
+    s_make.click(make_album, [s_album, s_style, s_focus, s_smart, s_quality],
+                 [s_video, s_downloads, s_info] + edit_outs)
+    demo.load(auto_sort, [s_album], [s_msg, s_album], show_progress="hidden")
+    s_timer.tick(auto_sort, [s_album], [s_msg, s_album], show_progress="hidden")
 
 if __name__ == "__main__":
     OUT.mkdir(exist_ok=True)
