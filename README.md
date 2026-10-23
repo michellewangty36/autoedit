@@ -32,9 +32,9 @@ Keep the black window open while you use AutoEdit. Closing it stops the app.
 | 🔊 **Loudness** | It sets the volume to the level YouTube, Instagram and TikTok expect. |
 | 📅 **Story order** | It puts everything in the order it was filmed, using the date inside each photo or video. |
 
-## ✂️ Edit it myself
+## ✂️ Edit (edit it myself)
 
-After a video is made, open the **✂️ Edit it myself** tab. You'll see a picture of every shot and a table where you can change these things:
+After a video is made, open the **✂️ Edit** tab. You'll see a picture of every shot and a table where you can change these things:
 - **Keep:** untick it to remove a shot.
 - **Order:** type a new number to move a shot.
 - **Start at** and **Length:** choose which part of a clip is used and how long it lasts.
@@ -52,9 +52,9 @@ Then press **🎬 Re-make video with my changes**. If you want more energy, pres
 
 You can also start from scratch: just add your clips in this tab. Every video saves a project file (`.autoedit.json`) in the `output` folder, so you can open it later with **📂 Open project** and keep editing.
 
-## 📁 Sort my photos
+## 📁 Sort (sort my photos)
 
-The **📁 Sort my photos** tab tidies a messy phone album:
+The **📁 Sort** tab tidies a messy phone album:
 - It makes trip folders such as **Singapore Trip 23-25.10.2026**, using the date and place saved in each photo. Photos from home go into month folders like **2026-10 October**, and screenshots go into their own folder.
 - WhatsApp photos are sorted too, by the date in their file name. WhatsApp copies of photos you already have are skipped.
 - It only makes copies, so your originals are never moved or deleted. Running it again adds only the new photos.
@@ -65,6 +65,16 @@ The **📁 Sort my photos** tab tidies a messy phone album:
 **Getting photos from an Android phone:** install OneDrive on the phone, then go to **Settings → Camera backup**. Turn it on, tap **Back up device folders** and tick WhatsApp Images, WhatsApp Video and Screenshots. Sign in to OneDrive on the computer with the same account. AutoEdit then sorts new photos every time it opens. You can also plug the phone in and use the Windows **Photos** app's **Import**, or drop photos straight into the tab.
 
 Place names come from GeoNames (geonames.org, CC BY 4.0) and work offline.
+
+## 📱 Use it on your phone
+
+You can open AutoEdit in your phone's web browser over your home Wi-Fi while the laptop is on. Then you can pick photos on the phone to sort them or make a vlog, and download the finished video to the phone.
+1. On the laptop, open **📱 Use AutoEdit on my phone** at the bottom of the page.
+2. Tick the box, choose a password and press **Save**.
+3. Close the black window and open AutoEdit again. If Windows asks whether to allow Python on networks, click **Allow** (private networks).
+4. On the phone, connect to the same Wi-Fi, then scan the QR code shown on the laptop. Log in with username **me** and your password.
+
+It works only on the same Wi-Fi, not over the internet, and the laptop's browser asks for the password too. In the **📁 Sort** tab, type a folder name such as *Sentosa Day* before you press **Sort now**, and the photos you picked go into that folder. This helps because some phones remove the location when photos are sent through the browser.
 
 ## 🧠 Smart AI (free, offline)
 

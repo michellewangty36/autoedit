@@ -241,7 +241,7 @@ def make(files, style, focus, smart, aspect, length, title, subtitle_text, music
     info = (f"**Done!** {summary['duration']}s · {summary['shots']} shots · style *{summary['style']}* · "
             f"music: {summary['music']} · {summary['subtitles']} subtitle lines"
             + (f" ({summary['language']})" if summary.get("language") else "")
-            + f"\n\nSaved to `{summary['output']}`\n\nWant to change something? Open the **✂️ Edit it myself** tab.")
+            + f"\n\nSaved to `{summary['output']}`\n\nWant to change something? Open the **✂️ Edit** tab.")
     downloads = [summary["output"]] + ([summary["srt"]] if summary["srt"] else [])
     return (summary["output"], downloads, info, "\n".join(log_lines)) + edit_outputs(plan, "Loaded your video. Change anything below, then press **Re-make video**.")
 
@@ -343,7 +343,7 @@ def _album_update(lib, keep=None):
     return gr.update(choices=ch, value=keep if keep in vals else (vals[0] if vals else None))
 
 
-def sort_now(sources_text, library, home, auto, extra, progress=gr.Progress()):
+def sort_now(sources_text, library, home, auto, extra, album_name, progress=gr.Progress()):
     sources = [_clean_path(l) for l in (sources_text or "").splitlines() if _clean_path(l)]
     lib = _clean_path(library) or sorter.default_settings()["library"]
     sorter.save_settings({"sources": sources, "library": lib, "home": (home or "").strip(), "auto": bool(auto)})
@@ -352,7 +352,7 @@ def sort_now(sources_text, library, home, auto, extra, progress=gr.Progress()):
         raise gr.Error("Add a folder to sort from, or drop some photos in the box.")
     try:
         r = sorter.sort_photos(sources, lib, home, progress=lambda f, m: progress(f, desc=m),
-                               extra_files=extra_files)
+                               extra_files=extra_files, album_name=album_name or "")
     except Exception as e:
         raise gr.Error(f"Sorting stopped: {e}")
     return sorter.summary_text(r), _album_update(lib), None
@@ -400,10 +400,72 @@ def make_album(folder, style, focus, smart, quality, progress=gr.Progress()):
     plan["_dir"] = str(pdir)
     save_plan(plan)
     info = (f"**Done!** {summary['duration']}s · {summary['shots']} shots · style *{summary['style']}*\n\n"
-            f"Saved to `{summary['output']}`\n\nWant to change something? Open the **✂️ Edit it myself** tab.")
+            f"Saved to `{summary['output']}`\n\nWant to change something? Open the **✂️ Edit** tab.")
     downloads = [summary["output"]] + ([summary["srt"]] if summary["srt"] else [])
     return (summary["output"], downloads, info) + edit_outputs(
         plan, f"Loaded your **{name}** vlog. Change anything below, then press **Re-make video**.")
+
+
+# ------------------------------------------------------------------ use it from the phone (home Wi-Fi)
+PHONE = OUT / "phone-access.json"
+PHONE_LIVE = False
+
+
+def phone_settings():
+    try:
+        return json.loads(PHONE.read_text(encoding="utf-8"))
+    except Exception:
+        return {"enabled": False, "password": ""}
+
+
+def lan_ip():
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("10.255.255.255", 1))  # sends nothing; just finds this computer's Wi-Fi address
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return socket.gethostbyname(socket.gethostname())
+
+
+def phone_view(request: gr.Request = None):
+    s = phone_settings()
+    if not PHONE_LIVE:
+        msg = ("Switched on. **Close the black window and open AutoEdit again** to start it."
+               if s.get("enabled") else "Off. Tick the box, choose a password and press Save.")
+        return msg, gr.update(value=None, visible=False)
+    port = 7860
+    try:
+        port = int((request.headers.get("host") or "").rsplit(":", 1)[1])
+    except Exception:
+        pass
+    url = f"http://{lan_ip()}:{port}"
+    msg = (f"**On.** On your phone, connect to the **same Wi-Fi** as this laptop, then scan the code with the "
+           f"camera or open **{url}**. Log in with username **me** and your password. "
+           "Keep the laptop on and AutoEdit open.")
+    try:
+        import qrcode
+        img = qrcode.make(url).get_image().convert("RGB")
+        return msg, gr.update(value=img, visible=True)
+    except Exception:
+        return msg, gr.update(value=None, visible=False)
+
+
+def phone_save(enabled, password, request: gr.Request = None):
+    password = (password or "").strip()
+    if enabled and len(password) < 4:
+        raise gr.Error("Choose a password with at least 4 letters or numbers.")
+    old = phone_settings()
+    PHONE.parent.mkdir(parents=True, exist_ok=True)
+    PHONE.write_text(json.dumps({"enabled": bool(enabled), "password": password or old.get("password", "")}),
+                     encoding="utf-8")
+    msg, qr = phone_view(request)
+    if bool(enabled) != PHONE_LIVE or (enabled and password and password != old.get("password")):
+        msg = "Saved. **Close the black window and open AutoEdit again** to apply it."
+        qr = gr.update(value=None, visible=False)
+    return msg, qr, ""
 
 
 SORT_HELP = """
@@ -469,6 +531,10 @@ button.ae-lively:hover { transform: translateY(-2px) scale(1.03); }
 @keyframes aePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(236,72,153,.55) } 50% { box-shadow: 0 0 0 12px rgba(236,72,153,0) } }
 .tab-wrapper button, button[role="tab"] { font-weight: 800 !important; font-size: 1.05rem !important; }
 button[role="tab"][aria-selected="true"] { color: #c026d3 !important; }
+@media (max-width: 640px) {
+  button[role="tab"] { font-size: .82rem !important; padding: 6px 6px !important; }
+  .ae-emojis span { font-size: 1.4rem; margin: 4px 4px 0; }
+}
 """
 
 HERO = """
@@ -494,7 +560,7 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
     gr.HTML(HERO, elem_id="ae-hero")
     plan_state = gr.State(None)
     with gr.Tabs():
-        with gr.Tab("🎬 Make it for me"):
+        with gr.Tab("🎬 Make"):
             with gr.Row():
                 with gr.Column(scale=1):
                     files = gr.File(label="1. Your photos & videos", file_count="multiple", type="filepath")
@@ -523,7 +589,7 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                     with gr.Accordion("What it did", open=False):
                         details = gr.Textbox(lines=14, show_label=False)
 
-        with gr.Tab("✂️ Edit it myself"):
+        with gr.Tab("✂️ Edit"):
             edit_msg = gr.Markdown("Make a video in the first tab, or add your own clips below to start from "
                                    "scratch, or open a saved project.")
             gallery = gr.Gallery(label="Your shots (ID number matches the table)", columns=6, height=260,
@@ -551,7 +617,7 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
             e_video = gr.Video(label="Your edited video")
             e_downloads = gr.File(label="Download", file_count="multiple")
 
-        with gr.Tab("📁 Sort my photos"):
+        with gr.Tab("📁 Sort"):
             _s = sorter.load_settings()
             gr.Markdown("Tidies all your photos and videos into folders like **Singapore Trip 23-25.10.2026** "
                         "and **2026-10 October**, using the date and place saved in each photo. WhatsApp photos "
@@ -564,8 +630,10 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                     s_home = gr.Textbox(_s.get("home", ""), label="Home town (optional, e.g. Kuala Lumpur)",
                                         placeholder="Leave empty and it works it out from your photos")
                     s_auto = gr.Checkbox(_s.get("auto", True), label="Sort automatically when AutoEdit opens")
-                    s_extra = gr.File(label="Or drop photos and videos here", file_count="multiple",
-                                      type="filepath")
+                    s_extra = gr.File(label="Or drop photos and videos here (also works from your phone)",
+                                      file_count="multiple", type="filepath")
+                    s_album_name = gr.Textbox(label="Put these dropped photos in a folder named (optional)",
+                                              placeholder="e.g. Singapore Trip 2026")
                     s_go = gr.Button("📁 Sort now", variant="primary", size="lg")
                     s_msg = gr.Markdown()
                     with gr.Accordion("How do my phone's photos get here?", open=False):
@@ -586,6 +654,19 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                     s_downloads = gr.File(label="Download", file_count="multiple")
             s_timer = gr.Timer(900)
 
+    with gr.Accordion("📱 Use AutoEdit on my phone", open=False):
+        gr.Markdown("Open AutoEdit in your phone's web browser over your home Wi-Fi while this laptop is on. "
+                    "Pick photos straight from your phone to sort them or make a vlog, and download the video "
+                    "to your phone. It is protected by a password, and works only on the same Wi-Fi, not over "
+                    "the internet. The laptop's browser will ask for the password too.")
+        with gr.Row():
+            p_enable = gr.Checkbox(phone_settings().get("enabled", False), label="Let my phone open AutoEdit")
+            p_password = gr.Textbox(type="password", label="Password (at least 4 characters)",
+                                    placeholder="leave empty to keep your current password")
+            p_save = gr.Button("💾 Save", variant="secondary")
+        p_msg = gr.Markdown()
+        p_qr = gr.Image(label="Scan with your phone", visible=False, height=260, show_label=True)
+
     edit_outs = [plan_state, shot_table, sub_table, gallery, e_style, e_title, e_volume, e_mood, edit_msg]
     go.click(make, [files, style, focus, smart, aspect, length, title, subtitle_text, music_file, mood, subs, lang,
                     translate, quality, music_volume], [video, downloads, info, details] + edit_outs)
@@ -595,7 +676,9 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                      [e_video, e_downloads] + edit_outs)
     add_btn.click(add_clips, [plan_state, shot_table, sub_table, add_files], edit_outs)
     open_btn.click(open_project, [open_file], edit_outs)
-    s_go.click(sort_now, [s_sources, s_library, s_home, s_auto, s_extra], [s_msg, s_album, s_extra])
+    s_go.click(sort_now, [s_sources, s_library, s_home, s_auto, s_extra, s_album_name], [s_msg, s_album, s_extra])
+    p_save.click(phone_save, [p_enable, p_password], [p_msg, p_qr, p_password])
+    demo.load(phone_view, None, [p_msg, p_qr], show_progress="hidden")
     s_open.click(open_album, [s_album], None)
     s_make.click(make_album, [s_album, s_style, s_focus, s_smart, s_quality],
                  [s_video, s_downloads, s_info] + edit_outs)
@@ -604,4 +687,11 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
 
 if __name__ == "__main__":
     OUT.mkdir(exist_ok=True)
-    demo.queue().launch(inbrowser=True, allowed_paths=[str(OUT)], theme=THEME, css=CSS)
+    _ps = phone_settings()
+    kw = {}
+    if _ps.get("enabled") and _ps.get("password"):
+        PHONE_LIVE = True
+        kw = dict(server_name="0.0.0.0", auth=("me", _ps["password"]),
+                  auth_message="AutoEdit: type username me and your password.")
+        print(f"Phone access is on: open http://{lan_ip()}:7860 on your phone (same Wi-Fi).")
+    demo.queue().launch(inbrowser=True, allowed_paths=[str(OUT)], theme=THEME, css=CSS, **kw)

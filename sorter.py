@@ -378,8 +378,8 @@ def find_home(items, override, P):
             key = (pl["cc"], pl["state"])
             days[key].add(it["t"][:10])
             pts[key].append(it["gps"])
-    if not days:
-        return None, ""
+    if len(set().union(*days.values())) < 5:
+        return None, ""  # too few days to tell home from a holiday; ask for the home town instead
     key = max(days, key=lambda k: len(days[k]))
     g = np.array(pts[key])
     centre = (float(np.median(g[:, 0])), float(np.median(g[:, 1])))
@@ -442,17 +442,17 @@ def _safe(name):
     return re.sub(r'[<>:"/\\|?*]+', " ", name).strip() or "Album"
 
 
-def sort_photos(sources, library, home_text="", progress=None, log=print, extra_files=()):
+def sort_photos(sources, library, home_text="", progress=None, log=print, extra_files=(), album_name=""):
     """Copy new photos and videos from `sources` into tidy album folders under `library`."""
     if not LOCK.acquire(blocking=False):
         return {"busy": True, "message": "Already sorting, please wait a moment."}
     try:
-        return _sort(sources, library, home_text, progress, log, extra_files)
+        return _sort(sources, library, home_text, progress, log, extra_files, album_name)
     finally:
         LOCK.release()
 
 
-def _sort(sources, library, home_text, progress, log, extra_files):
+def _sort(sources, library, home_text, progress, log, extra_files, album_name=""):
     P = places()
     lib = Path(library)
     lib.mkdir(parents=True, exist_ok=True)
@@ -540,12 +540,31 @@ def _sort(sources, library, home_text, progress, log, extra_files):
         existing.append(dict(rec, path=str(folder), name=folder.name))
         return folder
 
+    def album_named(name, days):
+        for a in existing:
+            if a.get("kind") == "named" and a.get("place") == name:
+                if days[0] < a["start"] or days[-1] > a["end"]:
+                    a["start"], a["end"] = min(a["start"], days[0]), max(a["end"], days[-1])
+                    _write_hidden(Path(a["path"]) / MARK_NAME, {k: a[k] for k in ("kind", "start", "end", "place")})
+                return Path(a["path"])
+        folder = lib / days[0][:4] / _safe(name)
+        folder.mkdir(parents=True, exist_ok=True)
+        rec = {"kind": "named", "start": days[0], "end": days[-1], "place": name}
+        _write_hidden(folder / MARK_NAME, rec)
+        existing.append(dict(rec, path=str(folder), name=folder.name))
+        return folder
+
+    extra_set = {str(Path(f)) for f in extra_files}
+    album_name = (album_name or "").strip()
+    named_days = sorted(i["t"][:10] for p, _, i in kept if str(p) in extra_set)
     counts = Counter()
     for i, (p, h, info) in enumerate(kept):
         if i % 20 == 0:
             prog(0.62 + 0.36 * i / max(1, len(kept)), f"Copying {i + 1} of {len(kept)}...")
         day = info["t"][:10]
-        if info["shot"]:
+        if album_name and str(p) in extra_set:
+            folder = album_named(album_name, named_days)
+        elif info["shot"]:
             folder = album_for_month(day[:7], "screenshots")
         else:
             tr = next((t for t in trips if t["start"] <= day <= t["end"]), None)
