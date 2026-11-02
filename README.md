@@ -108,6 +108,7 @@ AutoEdit has a free AI built in that looks at every shot and understands what's 
 - **Cozy**: autumn vibes with warm amber colours, soft grain and gentle fades.
 - **Spooky**: for Halloween, with dark green and purple shadows, flickering grain, slow reveals and eerie music.
 - **Throwback**: the "2026 is the new 2016" trend, a bright, warm, extra-saturated Instagram-filter look with quick fun cuts.
+- **Festive**: for Christmas and the holidays, with a warm golden glow, cosy reds, sparkly white flashes and bright happy music.
 
 ## Tips
 

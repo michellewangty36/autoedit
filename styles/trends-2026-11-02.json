@@ -1,0 +1,16 @@
+{
+  "about": "Style pack, November 2026. The holiday season starts: festive warm-gold look for Christmas and year-end videos.",
+  "moods": {
+    "festive": {"extends": "happy", "bpm": 120, "key": "F", "prog": [0, 5, 3, 4]}
+  },
+  "styles": {
+    "festive": {
+      "extends": "travel",
+      "desc": "Festive holidays: warm golden glow, cosy reds, sparkly white flashes and bright happy music",
+      "clip": 2.4, "photo": 2.6, "tr": 0.45,
+      "transitions": ["fadewhite", "circleopen", "zoomin", "dissolve", "radial", "fadewhite"],
+      "grade": "eq=contrast=1.06:saturation=1.22:brightness=0.04,colorbalance=rh=0.07:gh=0.04:bh=-0.06:rm=0.05:bm=-0.03,unsharp=5:5:0.4",
+      "grain": 0, "vignette": true, "mood": "festive"
+    }
+  }
+}
