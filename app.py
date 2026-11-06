@@ -252,7 +252,7 @@ def make(files, style, focus, smart, aspect, length, title, subtitle_text, music
     except Exception as e:
         raise fail(e, log_lines)
     plan = autoedit.load_plan(summary["plan"])
-    plan["_dir"] = str(pdir)
+    plan.update(_dir=str(pdir), inputs=[str(pdir / "media")], smart=smart, focus=focus or None, length=length or None)
     save_plan(plan)
     info = (f"**Done!** {summary['duration']}s · {summary['shots']} shots · style *{summary['style']}* · "
             f"music: {summary['music']} · {summary['subtitles']} subtitle lines"
@@ -318,6 +318,51 @@ def add_clips(plan, shot_table, sub_table, files):
             added += 1
     save_plan(plan)
     return edit_outputs(plan, f"Added {added} clip(s) at the end. Change their **Order** to move them.")
+
+
+def blend(plan, shot_table, sub_table, files, style, title, music_volume, mood, music_file, progress=gr.Progress()):
+    """Mix new photos/videos in with everything from before and let AutoEdit edit it all again."""
+    if not plan:
+        raise gr.Error("Make a video first, or open a saved project.")
+    if not files:
+        raise gr.Error("Choose the new photos or videos in the **Add more photos / videos** box first.")
+    pdir = Path(plan.get("_dir") or new_project_dir())
+    media = pdir / "media"
+    media.mkdir(parents=True, exist_ok=True)
+    copy_in(files, media)
+    inputs, seen = [], set()
+    for x in (plan.get("inputs") or []) + [str(media)]:
+        if Path(x).exists() and x not in seen:
+            seen.add(x)
+            inputs.append(x)
+    for sh in plan.get("shots", []):  # older projects: also the clips the video used
+        p = Path(sh["path"])
+        if p.exists() and not any(str(p).startswith(i) for i in inputs) and str(p) not in seen:
+            seen.add(str(p))
+            inputs.append(str(p))
+    music = plan.get("music") if not (mood and mood != "default") else None
+    if music_file:
+        music = str(copy_in([file_path(music_file)], pdir)[0])
+    log_lines = []
+    try:
+        summary = autoedit.make_video(
+            inputs, style=style or plan.get("style") or "auto", aspect=plan.get("aspect"),
+            length=plan.get("length"), title=title or None, subtitle_text=plan.get("subtitle_text") or None,
+            music=music if music and Path(music).exists() else None,
+            mood=None if not mood or mood == "default" else mood, subtitles=plan.get("subtitles", True),
+            resolution=int(plan.get("resolution", 1080)), music_volume=music_volume / 100.0,
+            progress=lambda frac, msg: progress(frac, desc=msg), log=log_lines.append,
+            smart=plan.get("smart", True), focus=plan.get("focus"))
+    except Exception as e:
+        raise fail(e, log_lines)
+    new = autoedit.load_plan(summary["plan"])
+    new.update(_dir=str(pdir), inputs=inputs, smart=plan.get("smart", True), focus=plan.get("focus"),
+               length=plan.get("length"))
+    save_plan(new)
+    downloads = [summary["output"]] + ([summary["srt"]] if summary["srt"] else [])
+    msg = (f"**Blended in and re-edited!** {summary['duration']}s · {summary['shots']} shots. "
+           f"Saved to `{summary['output']}`. You can still change anything below.")
+    return (summary["output"], downloads) + edit_outputs(new, msg)
 
 
 def open_project(f):
@@ -413,7 +458,7 @@ def make_album(folder, style, focus, smart, quality, progress=gr.Progress()):
     except Exception as e:
         raise fail(e, log_lines)
     plan = autoedit.load_plan(summary["plan"])
-    plan["_dir"] = str(pdir)
+    plan.update(_dir=str(pdir), inputs=[folder], smart=smart, focus=focus or None)
     save_plan(plan)
     info = (f"**Done!** {summary['duration']}s · {summary['shots']} shots · style *{summary['style']}*\n\n"
             f"Saved to `{summary['output']}`\n\nWant to change something? Open the **✂️ Edit** tab.")
@@ -626,7 +671,8 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                 add_files = gr.File(label="Add more photos / videos", file_count="multiple", type="filepath")
                 open_file = gr.File(label="Open a saved project (.autoedit.json)", type="filepath")
             with gr.Row():
-                add_btn = gr.Button("➕ Add these clips", variant="secondary")
+                add_btn = gr.Button("➕ Add these clips at the end", variant="secondary")
+                blend_btn = gr.Button("🔄 Blend them in & re-edit automatically", variant="secondary")
                 open_btn = gr.Button("📂 Open project", variant="secondary")
                 lively_btn = gr.Button("✨ Make it more lively", size="lg", elem_classes=["ae-lively"])
                 remake_btn = gr.Button("🎬 Re-make video with my changes", variant="primary", size="lg")
@@ -691,6 +737,8 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
     lively_btn.click(lively, [plan_state, shot_table, sub_table, e_style, e_title, e_volume, e_mood, e_music],
                      [e_video, e_downloads] + edit_outs)
     add_btn.click(add_clips, [plan_state, shot_table, sub_table, add_files], edit_outs)
+    blend_btn.click(blend, [plan_state, shot_table, sub_table, add_files, e_style, e_title, e_volume, e_mood, e_music],
+                    [e_video, e_downloads] + edit_outs)
     open_btn.click(open_project, [open_file], edit_outs)
     s_go.click(sort_now, [s_sources, s_library, s_home, s_auto, s_extra, s_album_name], [s_msg, s_album, s_extra])
     p_save.click(phone_save, [p_enable, p_password], [p_msg, p_qr, p_password])

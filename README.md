@@ -48,6 +48,8 @@ Below the table you can also:
 - Change the style, title, music mood, volume or song.
 - Add more photos or videos.
 
+**Got more photos later?** Put them in **Add more photos / videos** and press **🔄 Blend them in & re-edit automatically**. AutoEdit mixes them in with everything from before, in date order, skips duplicates and edits the whole video again. Or press **➕ Add these clips at the end** to keep your current edit and just add them.
+
 Then press **🎬 Re-make video with my changes**. If you want more energy, press **✨ Make it more lively**. It adds lively transitions, effects on the beat, quicker shots and upbeat music, and you can still change everything afterwards.
 
 You can also start from scratch: just add your clips in this tab. Every video saves a project file (`.autoedit.json`) in the `output` folder, so you can open it later with **📂 Open project** and keep editing.
