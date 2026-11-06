@@ -296,6 +296,18 @@ def get_font(kind, size, text=""):
 
 
 # ------------------------------------------------------------------ media discovery
+def file_fingerprint(path, chunk=2 << 20):
+    """Same bytes = same fingerprint (reads only the start and end of big files)."""
+    h = hashlib.sha1()
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        h.update(f.read(chunk))
+        if size > 2 * chunk:
+            f.seek(-chunk, 2)
+        h.update(f.read(chunk))
+    return size, h.hexdigest()
+
+
 def collect_media(inputs):
     files = []
     for item in inputs:
@@ -306,11 +318,16 @@ def collect_media(inputs):
             files.append(p)
         else:
             files += [Path(f) for f in sorted(glob.glob(item))]
-    videos, photos = [], []
+    videos, photos, seen = [], [], set()
     for f in files:
         ext = f.suffix.lower()
         if f.name.startswith("."):
             continue
+        if ext in VIDEO_EXT or ext in PHOTO_EXT:
+            key = file_fingerprint(f)
+            if key in seen:  # the same file added twice
+                continue
+            seen.add(key)
         if ext in VIDEO_EXT:
             videos.append(f)
         elif ext in PHOTO_EXT:
@@ -1392,24 +1409,32 @@ def render_plan(plan, output=None, progress=None, log=print, keep_temp=False, _w
     tracks = [t for t in (make_track("subs", sub_lines, style_name=S["sub_style"], letterbox=letterbox_h),
                           make_track("texts", text_lines, kind="caption", letterbox=letterbox_h)) if t]
 
-    # ---- final assembly
+    # ---- join the shots with transitions, a few at a time (many at once needs too much memory)
     prog(0.88, "Putting it all together (transitions, effects, subtitles, music)")
-    cmd = [FFMPEG, "-y", "-v", "error"]
-    for p in paths:
-        cmd += ["-i", str(p)]
-    mi = n
-    cmd += ["-i", str(mus_wav)]
-    idx = n + 1
-    fc = []
+    transitions = []
     for i in range(n):
-        fc.append(f"[{i}:v]settb=AVTB,fps={FPS},format=yuv420p[v{i}]")
-    last = "v0"
-    for i in range(1, n):
         trans = chosen[i].get("transition") or "auto"
-        if trans not in XFADE_TRANSITIONS:
-            trans = rng.choice(S["transitions"])
-        fc.append(f"[{last}][v{i}]xfade=transition={trans}:duration={tr:.3f}:offset={offsets[i]:.3f}[x{i}]")
-        last = f"x{i}"
+        transitions.append(trans if trans in XFADE_TRANSITIONS else rng.choice(S["transitions"]))
+    group = 10
+    if n <= group + 2:
+        joined = join_with_transitions(paths, offsets, transitions, tr, work / "joined.mkv")
+    else:
+        segs, seg_offsets, seg_trans = [], [], []
+        for k, a in enumerate(range(0, n, group)):
+            b = min(n, a + group)
+            local = [o - offsets[a] for o in offsets[a:b]]
+            segs.append(join_with_transitions(paths[a:b], local, transitions[a:b], tr, work / f"seg_{k:03d}.mkv"))
+            seg_offsets.append(offsets[a])
+            seg_trans.append(transitions[a])
+            prog(0.88 + 0.06 * b / n, f"Joined shots {b}/{n}")
+        joined = join_with_transitions(segs, seg_offsets, seg_trans, tr, work / "joined.mkv")
+
+    # ---- final pass: look, titles, subtitles, music
+    cmd = [FFMPEG, "-y", "-v", "error", "-i", str(joined), "-i", str(mus_wav)]
+    mi = 1
+    idx = 2
+    fc = []
+    last = "0:v"
     post = []
     if S["vignette"]:
         post.append("vignette=angle=PI/5")
@@ -1439,11 +1464,7 @@ def render_plan(plan, output=None, progress=None, log=print, keep_temp=False, _w
     # audio
     has_voice = any(c["kind"] == "video" and c["item"]["info"]["audio"] and c["slow"] == 1.0
                     and S["voice"] > 0 for c in chosen)
-    for i, off in enumerate(offsets):
-        ms = int(round(off * 1000))
-        fc.append(f"[{i}:a]adelay={ms}|{ms}[a{i}]")
-    fc.append("".join(f"[a{i}]" for i in range(n)) + f"amix=inputs={n}:normalize=0:dropout_transition=0[voice]"
-              if n > 1 else "[a0]anull[voice]")
+    fc.append("[0:a]anull[voice]")
     fc.append(f"[{mi}:a]aresample=48000,volume={S['music']}[mus]")
     if has_voice:
         fc.append("[voice]asplit=2[vk][vs]")
@@ -1484,6 +1505,32 @@ def render_plan(plan, output=None, progress=None, log=print, keep_temp=False, _w
                    language=plan.get("language"), render_seconds=round(secs, 1))
     prog(1.0, f"Done in {secs:.0f}s -> {output}")
     return summary
+
+
+def join_with_transitions(paths, offsets, transitions, tr, out):
+    """Join clips (video + sound) with xfade transitions; clip i starts at offsets[i]."""
+    n = len(paths)
+    cmd = [FFMPEG, "-y", "-v", "error"]
+    for p in paths:
+        cmd += ["-i", str(p)]
+    fc = [f"[{i}:v]settb=AVTB,fps={FPS},format=yuv420p[v{i}]" for i in range(n)]
+    last = "v0"
+    for i in range(1, n):
+        fc.append(f"[{last}][v{i}]xfade=transition={transitions[i]}:duration={tr:.3f}:offset={offsets[i]:.3f}[x{i}]")
+        last = f"x{i}"
+    fc.append(f"[{last}]null[vout]")
+    for i, off in enumerate(offsets):
+        ms = int(round(off * 1000))
+        fc.append(f"[{i}:a]aresample=48000,adelay={ms}|{ms}[a{i}]")
+    fc.append("".join(f"[a{i}]" for i in range(n)) + f"amix=inputs={n}:normalize=0:dropout_transition=0[aout]"
+              if n > 1 else "[a0]anull[aout]")
+    script = out.with_suffix(".filter.txt")
+    script.write_text(";\n".join(fc), encoding="utf-8")
+    cmd += ["-filter_complex_script" if not _ffmpeg_v7() else "-/filter_complex", str(script),
+            "-map", "[vout]", "-map", "[aout]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "16",
+            "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "48000", str(out)]
+    run(cmd, "joining shots")
+    return out
 
 
 def _ffmpeg_v7():

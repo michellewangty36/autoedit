@@ -71,6 +71,22 @@ def copy_in(files, folder):
     return out
 
 
+def fail(e, log_lines=None):
+    """Save the full details for help, and show a short, readable message."""
+    import traceback
+    err = OUT / "last-error.txt"
+    try:
+        OUT.mkdir(exist_ok=True)
+        err.write_text(dt.datetime.now().isoformat() + "\n\n" + "\n".join(log_lines or []) + "\n\n" +
+                       traceback.format_exc(), encoding="utf-8")
+    except Exception:
+        pass
+    short = str(e).strip().splitlines()
+    short = short[0] if short else e.__class__.__name__
+    return gr.Error(f"Something went wrong: {short}. The details are saved in the file "
+                    f"output\\last-error.txt. Send me that file and I can fix it.", duration=None)
+
+
 def file_path(f):
     if not f:
         return None
@@ -234,7 +250,7 @@ def make(files, style, focus, smart, aspect, length, title, subtitle_text, music
             progress=lambda frac, msg: progress(frac, desc=msg), log=log_lines.append,
             smart=smart, focus=focus or None)
     except Exception as e:
-        raise gr.Error(f"Something went wrong: {e}")
+        raise fail(e, log_lines)
     plan = autoedit.load_plan(summary["plan"])
     plan["_dir"] = str(pdir)
     save_plan(plan)
@@ -266,7 +282,7 @@ def remake(plan, shot_table, sub_table, style, title, music_volume, mood, music_
         summary = autoedit.render_plan(plan, progress=lambda frac, msg: progress(frac, desc=msg),
                                        log=log_lines.append)
     except Exception as e:
-        raise gr.Error(f"Something went wrong: {e}")
+        raise fail(e, log_lines)
     downloads = [summary["output"]] + ([summary["srt"]] if summary["srt"] else [])
     msg = (f"**Re-made!** {summary['duration']}s · {summary['shots']} shots. Saved to `{summary['output']}`. "
            "Keep editing and press Re-make again any time.")
@@ -395,7 +411,7 @@ def make_album(folder, style, focus, smart, quality, progress=gr.Progress()):
             progress=lambda frac, msg: progress(frac, desc=msg), log=log_lines.append,
             smart=smart, focus=focus or None)
     except Exception as e:
-        raise gr.Error(f"Something went wrong: {e}")
+        raise fail(e, log_lines)
     plan = autoedit.load_plan(summary["plan"])
     plan["_dir"] = str(pdir)
     save_plan(plan)
