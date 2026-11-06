@@ -475,15 +475,24 @@ def transcribe(wav, model_size="small", language=None, translate=False, log=prin
     model = _WHISPER[key]
     if model is None:
         return None
-    segs, inf = model.transcribe(str(wav), word_timestamps=True, vad_filter=True, language=language or None,
-                                 task="translate" if translate else "transcribe", beam_size=5)
-    out = []
-    for s in segs:
-        words = [dict(start=w.start, end=w.end, word=w.word) for w in (s.words or [])]
-        if not words:
-            words = [dict(start=s.start, end=s.end, word=s.text)]
-        out.append(dict(start=s.start, end=s.end, text=s.text.strip(), words=words))
-    return dict(language=inf.language, segments=out)
+    try:
+        import wave
+        with wave.open(str(wav)) as w:  # our own 16 kHz mono file; avoids the audio library faster-whisper uses
+            audio = np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(np.float32) / 32768
+        if len(audio) < 1600:
+            return dict(language=None, segments=[])
+        segs, inf = model.transcribe(audio, word_timestamps=True, vad_filter=True, language=language or None,
+                                     task="translate" if translate else "transcribe", beam_size=5)
+        out = []
+        for s in segs:
+            words = [dict(start=w.start, end=w.end, word=w.word) for w in (s.words or [])]
+            if not words:
+                words = [dict(start=s.start, end=s.end, word=s.text)]
+            out.append(dict(start=s.start, end=s.end, text=s.text.strip(), words=words))
+        return dict(language=inf.language, segments=out)
+    except Exception as e:
+        log(f"  (subtitles skipped for this clip: {e})")
+        return dict(language=None, segments=[])
 
 
 # ------------------------------------------------------------------ candidate selection
