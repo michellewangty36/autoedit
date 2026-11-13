@@ -1426,17 +1426,17 @@ def render_plan(plan, output=None, progress=None, log=print, keep_temp=False, _w
         transitions.append(trans if trans in XFADE_TRANSITIONS else rng.choice(S["transitions"]))
     group = 10
     if n <= group + 2:
-        joined = join_with_transitions(paths, offsets, transitions, tr, work / "joined.mkv")
+        joined = join_with_transitions(paths, offsets, transitions, tr, work / "joined.mkv", W, H)
     else:
         segs, seg_offsets, seg_trans = [], [], []
         for k, a in enumerate(range(0, n, group)):
             b = min(n, a + group)
             local = [o - offsets[a] for o in offsets[a:b]]
-            segs.append(join_with_transitions(paths[a:b], local, transitions[a:b], tr, work / f"seg_{k:03d}.mkv"))
+            segs.append(join_with_transitions(paths[a:b], local, transitions[a:b], tr, work / f"seg_{k:03d}.mkv", W, H))
             seg_offsets.append(offsets[a])
             seg_trans.append(transitions[a])
             prog(0.88 + 0.06 * b / n, f"Joined shots {b}/{n}")
-        joined = join_with_transitions(segs, seg_offsets, seg_trans, tr, work / "joined.mkv")
+        joined = join_with_transitions(segs, seg_offsets, seg_trans, tr, work / "joined.mkv", W, H)
 
     # ---- final pass: look, titles, subtitles, music
     cmd = [FFMPEG, "-y", "-v", "error", "-i", str(joined), "-i", str(mus_wav)]
@@ -1516,13 +1516,15 @@ def render_plan(plan, output=None, progress=None, log=print, keep_temp=False, _w
     return summary
 
 
-def join_with_transitions(paths, offsets, transitions, tr, out):
+def join_with_transitions(paths, offsets, transitions, tr, out, W, H):
     """Join clips (video + sound) with xfade transitions; clip i starts at offsets[i]."""
     n = len(paths)
     cmd = [FFMPEG, "-y", "-v", "error"]
     for p in paths:
-        cmd += ["-i", str(p)]
-    fc = [f"[{i}:v]settb=AVTB,fps={FPS},format=yuv420p[v{i}]" for i in range(n)]
+        cmd += ["-noautorotate", "-i", str(p)]  # our clips are already the right way up
+    # every piece must be exactly W x H for the transitions (some phone videos carry rotation flags)
+    fit = f"scale={W}:{H}:force_original_aspect_ratio=decrease,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+    fc = [f"[{i}:v]{fit},settb=AVTB,fps={FPS},format=yuv420p[v{i}]" for i in range(n)]
     last = "v0"
     for i in range(1, n):
         fc.append(f"[{last}][v{i}]xfade=transition={transitions[i]}:duration={tr:.3f}:offset={offsets[i]:.3f}[x{i}]")
