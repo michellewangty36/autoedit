@@ -483,6 +483,8 @@ JS = r"""
     c.dataset[f.dataset.k] = v;
     if (f.dataset.k === 'dur') setW(c);
     if (f.dataset.k === 'text') c.querySelector('.ae-txt').hidden = !v.trim();
+    if (f.dataset.k === 'mute' && P && cards()[P.i] === c)
+      root().querySelectorAll('.ae-layer.on video').forEach(el => { el.muted = v === 'off' || !!pv().mute; });
     commit();
     if (f.dataset.k !== 'text') select(c);
   });
