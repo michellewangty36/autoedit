@@ -23,10 +23,12 @@ Keep the black window open while you use AutoEdit. Closing it stops the app.
 |---|---|
 | ✂️ **Smart cutting** | It finds scene changes and keeps the sharpest and most interesting moments. It drops blurry, dark, over-exposed and shaky parts, and the fumbling at the start and end of each clip. |
 | 🗣️ **Keeps people talking** | In vlog styles it keeps full sentences together and cuts out the long pauses between them. |
-| 📝 **Auto subtitles** | It writes subtitles for any language (English, 中文, Malay, Cantonese, Japanese, Korean and more). It can also translate them into English. The subtitles are burned into the video and also saved as an `.srt` file. |
+| 📝 **Auto subtitles** | It writes subtitles for any language (English, 中文, Malay, Cantonese, Japanese, Korean and more). It can also translate them into English. Background chatter, noise and words it isn't sure about are left out, so you don't get made-up lines. Chinese comes out in simplified characters. The subtitles are burned into the video and also saved as an `.srt` file. |
 | 🎵 **Music** | It uses your own songs from the `music` folder. If that folder is empty, it composes a **brand-new royalty-free track** for every video, matched to the length and mood, so it is safe to post anywhere. |
 | 🥁 **Beat-synced cuts** | Cuts land on the beat of the music. The music gets quieter automatically when someone speaks. |
-| 🖼️ **Photos come alive** | Photos get smooth zoom and pan ("Ken Burns") that focuses on faces. Near-duplicate photos (bursts) are removed, and the sharpest one is kept. |
+| 🖼️ **Photos come alive** | Photos get smooth zoom and pan ("Ken Burns") that focuses on faces. Blurry and dark photos are left out. Near-duplicate photos (bursts) are removed, and the sharpest one is kept. Every photo stays on screen for at least 2.6 seconds. |
+| 🔁 **No repeats** | Shots taken close together count as one moment. Each moment gets its best few shots (more if it lasted longer), and two shots of the same scene are not both used. |
+| 💬 **"What we're doing" captions** | At each new moment it adds a short caption, like **今天来尝试 coconut boat la~**, **来吃 seafood la~** or **来到 Da Nang 啦~** (from the photo's location). Pick 中文 + English mix, 中文, English or Off. Change any caption in the **Text on screen** column in ✂️ Edit. |
 | 📐 **Any shape** | It makes 16:9 (YouTube), 9:16 (TikTok/Reels/Shorts), 1:1 or 4:5 videos. Vertical clips get a blurred background fill, and wide clips are cropped to follow faces. |
 | 🎨 **Looks and effects** | It colour-grades each style, adds transitions, a title card, slow motion for action shots, film grain, vignette, cinematic letterbox bars and fades. It also stabilises shaky clips and fixes washed-out iPhone HDR colours. |
 | 🔊 **Loudness** | It sets the volume to the level YouTube, Instagram and TikTok expect. |

@@ -179,6 +179,8 @@ STYLES = {
         vignette=False, grain=4, letterbox=False, voice=0.6, music=0.45, keep_speech=True,
         slowmo=False, sub_style="pill", title_font="sans"),
 }
+MIN_PHOTO = 2.6   # seconds: no photo flashes by faster than this
+MIN_CLIP = 2.2    # seconds: shortest video shot
 XFADE_TRANSITIONS = ["fade", "fadeblack", "fadewhite", "dissolve", "smoothleft", "smoothright", "smoothup",
                      "smoothdown", "slideleft", "slideright", "slideup", "slidedown", "wipeleft", "wiperight",
                      "wipeup", "wipedown", "circleopen", "circleclose", "circlecrop", "zoomin", "radial",
@@ -263,7 +265,7 @@ FONT_CANDIDATES = {
         "/System/Library/Fonts/PingFang.ttc", "/System/Library/Fonts/Hiragino Sans GB.ttc",
         "/System/Library/Fonts/STHeiti Medium.ttc", "/Library/Fonts/Arial Unicode.ttf",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", "/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
     ],
     "sans": [
         "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf",
@@ -422,8 +424,9 @@ def analyse_video(path, info, rate=4.0):
         for k, v in (("sharp", sharp), ("bright", float(g.mean() / 255)), ("motion", motion), ("shake", shake),
                      ("face", nf), ("face_x", fx), ("sat", sat), ("cut", cut)):
             m[k].append(v)
-        if i % int(rate) == 0:  # 1 frame per second for the smart AI
+        if i % int(rate) == 0:  # 1 frame per second for the smart AI and for spotting repeats
             m.setdefault("thumbs", []).append(rgb.copy())
+            m.setdefault("dh", []).append(dhash(Image.fromarray(rgb)))
         prev_g, prev_h = g, hist
         i += 1
     proc.wait()
@@ -481,18 +484,58 @@ def transcribe(wav, model_size="small", language=None, translate=False, log=prin
             audio = np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(np.float32) / 32768
         if len(audio) < 1600:
             return dict(language=None, segments=[])
-        segs, inf = model.transcribe(audio, word_timestamps=True, vad_filter=True, language=language or None,
-                                     task="translate" if translate else "transcribe", beam_size=5)
+        kw = dict(word_timestamps=True, vad_filter=True, task="translate" if translate else "transcribe",
+                  beam_size=5, condition_on_previous_text=False)
+        segs, inf = model.transcribe(audio, language=language or None, **kw)
+        if (language or inf.language) == "zh" and not translate:
+            # ask for simplified Chinese (it otherwise often writes traditional characters)
+            segs, inf = model.transcribe(audio, language="zh", initial_prompt="以下是普通话的句子，使用简体中文。", **kw)
+        unsure_lang = not language and getattr(inf, "language_probability", 1.0) < 0.5
         out = []
+        dropped = 0
         for s in segs:
+            if not good_speech(s, strict=unsure_lang):
+                dropped += 1
+                continue
             words = [dict(start=w.start, end=w.end, word=w.word) for w in (s.words or [])]
             if not words:
                 words = [dict(start=s.start, end=s.end, word=s.text)]
             out.append(dict(start=s.start, end=s.end, text=s.text.strip(), words=words))
+        if dropped:
+            log(f"  left out {dropped} unclear bit(s) of speech (background chatter or noise)")
         return dict(language=inf.language, segments=out)
     except Exception as e:
         log(f"  (subtitles skipped for this clip: {e})")
         return dict(language=None, segments=[])
+
+
+# things the speech model "hears" in noise or chatter that nobody actually said
+_FAKE_SPEECH = {"you", "thank you", "thanks", "thank you for watching", "thanks for watching", "bye", "bye bye",
+                "hello", "hi", "oh", "ah", "um", "uh", "hmm", "yeah", "okay", "ok", "so", "the end", "music",
+                "please subscribe", "subscribe", "like and subscribe", "see you next time",
+                "谢谢观看", "謝謝觀看", "谢谢", "謝謝", "感谢观看", "嗯", "啊", "哦", "呃", "好", "字幕", "我们下期再见",
+                "請不吝點贊訂閱轉發打賞支持明鏡與點點欄目", "请不吝点赞订阅转发打赏支持明镜与点点栏目"}
+_FAKE_PARTS = ("字幕", "subtitles by", "subscribe", "订阅", "訂閱", "点赞", "點贊", "amara.org", "明镜", "明鏡")
+
+
+def good_speech(seg, strict=False):
+    """True if a recognised bit of speech is clear enough to show as a subtitle."""
+    text = (seg.text or "").strip()
+    key = re.sub(r"[\s\.,!?;:~'\"，。！？、…-]+", " ", text.lower()).strip()
+    if len(key.replace(" ", "")) < 2 or key in _FAKE_SPEECH or "\ufffd" in text:
+        return False
+    if any(p in key for p in _FAKE_PARTS):
+        return False
+    if seg.compression_ratio > 2.2:          # the same words over and over = made up
+        return False
+    if seg.no_speech_prob > 0.5 and seg.avg_logprob < -0.5:
+        return False
+    if seg.avg_logprob < (-0.6 if strict else -0.85):
+        return False
+    probs = [w.probability for w in (seg.words or []) if getattr(w, "probability", None) is not None]
+    if probs and float(np.mean(probs)) < (0.65 if strict else 0.55):
+        return False
+    return True
 
 
 # ------------------------------------------------------------------ candidate selection
@@ -565,7 +608,7 @@ def make_candidates(item, style, norm):
         blocked = np.zeros(n, bool)
     # shots from scene cuts
     cuts = [0] + [i for i, c in enumerate(m["cut"]) if c] + [n]
-    L = style["clip"]
+    L = max(style["clip"], MIN_CLIP)
     win = max(2, int(round(L * rate)))
     for a, b in zip(cuts[:-1], cuts[1:]):
         # split shot into free (non-speech) runs
@@ -578,7 +621,7 @@ def make_candidates(item, style, norm):
             while j < b and not blocked[j]:
                 j += 1
             run_len = j - i
-            if run_len >= max(3, int(0.8 * rate)):
+            if run_len >= int(MIN_CLIP * 0.8 * rate):
                 seg = scores[i:j]
                 w = min(win, run_len)
                 cs = np.convolve(seg, np.ones(w) / w, mode="valid")
@@ -602,6 +645,10 @@ def make_candidates(item, style, norm):
         fx = [v for v in m["face_x"][ia:ib] if v is not None]
         c["face_x"] = float(np.median(fx)) if fx else None
         c["shaky"] = float(np.mean(m["shake"][ia:ib])) > 0.012
+        c["sharp"] = float(np.mean(m["sharp"][ia:ib])) / norm["sharp"]
+        c["bright"] = float(np.mean(m["bright"][ia:ib]))
+        if m.get("dh"):
+            c["hash"] = m["dh"][min(int(c["start"] + c["dur"] / 2), len(m["dh"]) - 1)]
         if m.get("ai_emb") is not None and len(m["ai_emb"]):
             ja = min(int(c["start"]), len(m["ai_emb"]) - 1)
             jb = max(ja + 1, min(int(math.ceil(c["start"] + c["dur"])), len(m["ai_emb"])))
@@ -636,7 +683,8 @@ def analyse_photo(path):
             face_y = float(np.mean([(y + h / 2) / g.shape[0] for (x, y, w, h) in faces]))
     thumb = small.copy()
     thumb.thumbnail((320, 320))
-    return dict(size=im.size, sharp=sharp, face_x=face_x, face_y=face_y, hash=dhash(small), thumb=thumb)
+    bright = float(arr.mean() / 255)
+    return dict(size=im.size, sharp=sharp, bright=bright, face_x=face_x, face_y=face_y, hash=dhash(small), thumb=thumb)
 
 
 # ------------------------------------------------------------------ rendering: clips
@@ -940,10 +988,162 @@ def find_music(mood):
 
 
 # ------------------------------------------------------------------ main pipeline
+# ------------------------------------------------------------------ choosing: clear shots, no repeats, captions
+def media_time_gps(path):
+    """When and where a photo/video was taken (local time), using the same rules as the photo sorter."""
+    try:
+        import sorter
+        d = sorter.describe(path)
+        when = dt.datetime.fromisoformat(d["t"]) if d["tsrc"] != "modified" else None
+        return when, d.get("gps")
+    except Exception:
+        return (photo_time(path) if Path(path).suffix.lower() in PHOTO_EXT else None), None
+
+
+def drop_unclear_photos(photo_items, log=print):
+    """Leave out blurry and too-dark photos (keeps everything if that would leave almost nothing)."""
+    if len(photo_items) < 4:
+        return photo_items
+    med = float(np.median([x["meta"]["sharp"] for x in photo_items]))
+    good = [x for x in photo_items
+            if x["meta"]["sharp"] >= max(8.0, 0.3 * med) and 0.07 <= x["meta"].get("bright", 0.5) <= 0.96]
+    if len(good) >= max(3, 0.25 * len(photo_items)) and len(good) < len(photo_items):
+        log(f"  left out {len(photo_items) - len(good)} blurry or dark photo(s)")
+        return good
+    return photo_items
+
+
+def _sig(x):
+    """(AI picture fingerprint, simple picture fingerprint) of a photo item, photo shot or video moment."""
+    meta = x.get("meta") or {}
+    return x.get("emb", meta.get("emb")), x.get("hash", meta.get("hash"))
+
+
+def looks_same(a, b, emb_thr, hash_thr):
+    ea, ha = _sig(a)
+    eb, hb = _sig(b)
+    if ea is not None and eb is not None:
+        return float(np.dot(ea, eb)) > emb_thr
+    if ha is not None and hb is not None:
+        return int(np.count_nonzero(np.asarray(ha) != np.asarray(hb))) <= hash_thr
+    return False
+
+
+def pick_variety(photo_items, cands, use_time, log=print):
+    """Keep the best few shots of every moment of the day and leave out repeats of the same scene.
+
+    A "moment" is a group of shots taken close together (no gap over 15 minutes). Each moment gets
+    3 shots plus 1 more for every 10 minutes it lasted (at most 8), and two shots of the same scene
+    in one moment are not both used. Talking moments are always kept.
+    """
+    units = []
+    for ph in photo_items:
+        q = min(ph["meta"]["sharp"] / (np.median([x["meta"]["sharp"] for x in photo_items]) + 1e-6), 1.5)
+        units.append(dict(obj=ph, q=q + ph["meta"].get("ai", 0.0), t=ph["time"] if use_time else None,
+                          src=str(ph["path"])))
+    for c in cands:
+        t = c["item"]["time"] + dt.timedelta(seconds=c["start"]) if (use_time and c["item"]["time"]) else None
+        c["gps"] = c["item"].get("gps")
+        units.append(dict(obj=c, q=c["score"] + (2 if c["speech"] else 0), t=t, src=str(c["path"])))
+    if not units:
+        return photo_items, cands
+    # moments
+    timed = sorted([u for u in units if u["t"] is not None], key=lambda u: u["t"])
+    mid, last = -1, None
+    for u in timed:
+        if last is None or (u["t"] - last).total_seconds() > 15 * 60:
+            mid += 1
+        u["m"] = mid
+        last = u["t"]
+    srcs = {}
+    for u in units:
+        if u["t"] is None:
+            u["m"] = srcs.setdefault(u["src"], mid + 1 + len(srcs))
+    span = {}
+    for u in timed:
+        a, b = span.get(u["m"], (u["t"], u["t"]))
+        span[u["m"]] = (min(a, u["t"]), max(b, u["t"]))
+    cap = {m: min(8, 3 + int((b - a).total_seconds() / 600)) for m, (a, b) in span.items()}
+    taken, count = [], {}
+    for u in sorted(units, key=lambda u: -u["q"]):
+        o = u["obj"]
+        talking = o.get("speech", False)
+        if not talking:
+            if count.get(u["m"], 0) >= cap.get(u["m"], 3):
+                continue
+            if any(looks_same(o, v["obj"], 0.92, 8) for v in taken):              # same picture anywhere
+                continue
+            if any(v["m"] == u["m"] and looks_same(o, v["obj"], 0.86, 14) for v in taken):  # same scene, same moment
+                continue
+        o["moment"] = u["m"]
+        taken.append(u)
+        count[u["m"]] = count.get(u["m"], 0) + 1
+    keep = {id(u["obj"]) for u in taken}
+    new_ph = [x for x in photo_items if id(x) in keep]
+    new_c = [c for c in cands if id(c) in keep]
+    # make sure a video with nothing left can't sneak back in as "the best shot of every video"
+    left = (len(photo_items) - len(new_ph)) + (len(cands) - len(new_c))
+    if left:
+        log(f"  left out {len(photo_items) - len(new_ph)} photo(s) and {len(cands) - len(new_c)} video moment(s) "
+            f"that repeat the same scene ({len(span) or len(srcs)} different moments kept)")
+    return new_ph or photo_items[:1], new_c
+
+
+def add_captions(chosen, eye, lang="mix", log=print, has_title=False):
+    """Put a short "what we're doing now" caption on the first shot of each new moment."""
+    if not lang or lang == "off":
+        return
+    try:
+        import ai_vision
+        import sorter
+        P = sorter.places()
+    except Exception:
+        ai_vision, P = None, None
+    if ai_vision is None:
+        return
+    last_place, last_act, last_t, t, n = None, None, -99.0, 0.0, 0
+    prev_m = object()
+    for i, c in enumerate(chosen):
+        m = c.get("moment")
+        start = t
+        t += c["dur"]
+        if m == prev_m:
+            continue
+        prev_m = m
+        group = [x for x in chosen if x.get("moment") == m] if m is not None else [c]
+        place = None
+        gps = next((x.get("gps") for x in group if x.get("gps")), None)
+        if gps and P is not None:
+            try:
+                place = P.lookup(*gps)["city"]
+            except Exception:
+                place = None
+        act, conf = None, 0.0
+        if eye is not None:
+            embs = [x.get("emb") for x in group if x.get("emb") is not None]
+            if embs:
+                e = np.mean(embs, axis=0)
+                act, conf = eye.activity(e / (np.linalg.norm(e) + 1e-9))
+        if conf < 0.3 or act == last_act:
+            act = None
+        new_place = place if place and place != last_place else None
+        if place:
+            last_place = place
+        if (i == 0 and has_title) or start - last_t < 12:  # don't cover the title or crowd captions
+            continue
+        text = ai_vision.caption_for(act, lang, new_place)
+        if text:
+            c["caption"] = text
+            last_t, last_act = start, act or last_act
+            n += 1
+    if n:
+        log(f"  added {n} caption(s) about what you're doing (change them in Edit)")
+
+
 def make_video(inputs, output=None, style="auto", aspect=None, length=None, title=None, subtitle_text=None,
                music=None, mood=None, subtitles=True, sub_language=None, translate=False, whisper_model="small",
                resolution=1080, seed=None, keep_temp=False, music_volume=None, progress=None, log=print,
-               smart=True, focus=None):
+               smart=True, focus=None, captions="mix"):
     t_start = time.time()
     rng = random.Random(seed if seed is not None else int(time.time()))
 
@@ -972,7 +1172,8 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
         if not info["video"] or info["duration"] < 0.5:
             log(f"  skipping {v.name} (no usable video)")
             continue
-        it = dict(kind="video", path=v, info=info, time=info["time"])
+        when, gps = media_time_gps(v)
+        it = dict(kind="video", path=v, info=info, time=when or info["time"], gps=gps)
         it["m"] = analyse_video(v, info)
         if info["audio"]:
             wav = work / f"a{i}.wav"
@@ -990,8 +1191,10 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
         except Exception as e:
             log(f"  skipping {p.name} ({e})")
             continue
-        photo_items.append(dict(kind="photo", path=p, meta=meta, time=photo_time(p)))
+        when, gps = media_time_gps(p)
+        photo_items.append(dict(kind="photo", path=p, meta=meta, time=when, gps=gps))
     # ---- smart AI: understand what is in every shot (free, runs on this computer)
+    eye = None
     if smart:
         prog(0.28, "Smart AI is looking at your shots" + (f" (focus: {focus})" if focus else ""))
         try:
@@ -1026,11 +1229,12 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
     for it in items:
         it["m"].pop("thumbs", None)
 
-    # drop near-duplicate photos (bursts) - keep the sharpest
+    photo_items = drop_unclear_photos(photo_items, log)
+    # drop near-duplicate photos (bursts, the same view twice) - keep the sharpest
     kept = []
     for ph in sorted(photo_items, key=lambda x: -x["meta"]["sharp"]):
-        if all(np.count_nonzero(ph["meta"]["hash"] != k["meta"]["hash"]) > 6 and
-               not ("emb" in ph["meta"] and "emb" in k["meta"] and float(ph["meta"]["emb"] @ k["meta"]["emb"]) > 0.97)
+        if all(np.count_nonzero(ph["meta"]["hash"] != k["meta"]["hash"]) > 8 and
+               not ("emb" in ph["meta"] and "emb" in k["meta"] and float(ph["meta"]["emb"] @ k["meta"]["emb"]) > 0.93)
                for k in kept):
             kept.append(ph)
     if len(kept) < len(photo_items):
@@ -1087,9 +1291,14 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
     cands = []
     for it in items:
         cands += make_candidates(it, S, norm)
+    clear = [c for c in cands if c["speech"] or (c["sharp"] >= 0.35 and c["bright"] >= 0.08 and c["score"] > -0.4)]
+    if clear and len(clear) < len(cands):
+        log(f"  left out {len(cands) - len(clear)} blurry, dark or shaky video moment(s)")
+        cands = clear
+    photo_items, cands = pick_variety(photo_items, cands, use_time, log)
 
     # ---- duration budget
-    P = S["photo"]
+    P = max(S["photo"], MIN_PHOTO)
     speech_c = [c for c in cands if c["speech"]]
     if length:
         target = float(length)
@@ -1101,8 +1310,7 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
         target = float(np.clip(target, 10, 300))
     # photos
     if photo_items and len(photo_items) * P > 0.85 * target and (items or length):
-        max_ph = max(1, int(0.85 * target / max(1.4, P * 0.7)))
-        P = max(1.4, min(P, 0.85 * target / len(photo_items)))
+        max_ph = max(1, int(0.85 * target / P))
         if len(photo_items) > max_ph:
             ps = np.array([x["meta"]["sharp"] for x in photo_items])
             ps = ps / (np.percentile(ps, 75) + 1e-6)
@@ -1133,18 +1341,16 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
         if any(o["path"] == c["path"] and o["start"] < c["start"] + c["dur"] and c["start"] < o["start"] + o["dur"]
                for o in chosen):
             continue
-        if not c["speech"] and c.get("emb") is not None and not c.get("_again") and any(
-                o.get("emb") is not None and float(o["emb"] @ c["emb"]) > 0.94 for o in chosen):
-            c["_again"] = True
-            queue.append(c)  # looks the same as a shot we already have - only used if time is left
-            continue
+        if not c["speech"] and any(looks_same(o, c, 0.92, 8) for o in chosen):
+            continue  # looks the same as a shot we already have
         chosen.append(c)
         used += d_eff
         if c["speech"]:
             speech_used += c["dur"]
     for ph in photo_items:
         chosen.append(dict(kind="photo", path=ph["path"], meta=ph["meta"], dur=P, time_key=ph["time_key"],
-                           speech=False, start=0.0, score=0, label=ph["meta"].get("label")))
+                           speech=False, start=0.0, score=0, label=ph["meta"].get("label"), emb=ph["meta"].get("emb"),
+                           moment=ph.get("moment"), gps=ph.get("gps")))
     if not chosen:
         raise ValueError("Nothing usable was found in the media.")
     chosen.sort(key=lambda c: (c["time_key"], c.get("start", 0)))
@@ -1179,11 +1385,11 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
             c["dur"] = max(c["dur"], 2.0) if c["kind"] == "photo" else c["dur"]
             break
         if c["kind"] == "photo":
-            d_min, d_max = max(1.0, 2 * tr + 0.4), 99
+            d_min, d_max = max(MIN_PHOTO * 0.9, 2 * tr + 0.4), 99
         else:
             slow = c.get("slow", 1.0)
             avail = (c["lim_end"] - c["start"]) * slow
-            d_min = max(0.8, 2 * tr + 0.3) if not c["speech"] else c["dur"]
+            d_min = max(MIN_CLIP * 0.9, 2 * tr + 0.3) if not c["speech"] else c["dur"]
             d_max = min(avail, c["dur"] + (0.6 if c["speech"] else 2.0)) if c["speech"] else avail
             d_min = min(d_min, d_max)
         mid = t + c["dur"] - tr / 2 - beat_off
@@ -1212,11 +1418,12 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
         d0 = next((x["time"] for x in ordered if x["time"]), None)
         subtitle_text = d0.strftime("%d %B %Y").lstrip("0") if d0 else ""
     language = None
+    add_captions(chosen, eye, captions, log, has_title=bool(title))
     shots = []
     for i, c in enumerate(chosen):
         sh = dict(order=i + 1, keep=True, kind=c["kind"], path=str(Path(c["path"]).resolve()),
                   start=round(float(c.get("start", 0.0)), 3), dur=round(float(c["dur"]), 3),
-                  speed=round(1.0 / c.get("slow", 1.0), 3), transition="auto", effect="none", text="",
+                  speed=round(1.0 / c.get("slow", 1.0), 3), transition="auto", effect="none", text=c.get("caption", ""),
                   label=c.get("label") or "", speech=bool(c.get("speech")), shaky=bool(c.get("shaky")),
                   face_x=c.get("face_x"))
         if c["kind"] == "photo":
@@ -1574,10 +1781,12 @@ def main():
     ap.add_argument("--keep-temp", action="store_true")
     ap.add_argument("--focus", help='what the smart AI should favour, e.g. "food, beach, my dog"')
     ap.add_argument("--no-ai", action="store_true", help="turn off the smart AI")
+    ap.add_argument("--captions", default="mix", choices=["mix", "zh", "en", "off"],
+                    help="'what we're doing now' captions: mix (中文 + English), zh, en or off")
     a = ap.parse_args()
     s = make_video(a.inputs, a.output, a.style, a.aspect, a.length, a.title, a.subtitle_text, a.music, a.mood,
                    not a.no_subs, a.lang, a.translate, a.whisper, a.resolution, a.seed, a.keep_temp, a.music_volume,
-                   smart=not a.no_ai, focus=a.focus)
+                   smart=not a.no_ai, focus=a.focus, captions=a.captions)
     print(json.dumps(s, indent=2, ensure_ascii=False))
 
 

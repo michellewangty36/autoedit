@@ -231,9 +231,12 @@ def edit_outputs(plan, msg=""):
             int(round(float(plan.get("music_volume", 0.4)) * 100)), plan.get("mood") or "default", msg)
 
 
+CAPTION_CHOICES = {"中文 + English mix": "mix", "中文": "zh", "English": "en", "Off": "off"}
+
+
 # ------------------------------------------------------------------ actions
 def make(files, style, focus, smart, aspect, length, title, subtitle_text, music_file, mood, subs, lang, translate,
-         quality, music_volume, progress=gr.Progress()):
+         quality, music_volume, captions="mix", progress=gr.Progress()):
     if not files:
         raise gr.Error("Please add some photos or videos first.")
     pdir = new_project_dir()
@@ -248,11 +251,12 @@ def make(files, style, focus, smart, aspect, length, title, subtitle_text, music
             mood=None if mood == "default" else mood, subtitles=subs, sub_language=lang or None,
             translate=translate, resolution=QUALITY[quality], music_volume=music_volume / 100.0,
             progress=lambda frac, msg: progress(frac, desc=msg), log=log_lines.append,
-            smart=smart, focus=focus or None)
+            smart=smart, focus=focus or None, captions=CAPTION_CHOICES.get(captions, "mix"))
     except Exception as e:
         raise fail(e, log_lines)
     plan = autoedit.load_plan(summary["plan"])
-    plan.update(_dir=str(pdir), inputs=[str(pdir / "media")], smart=smart, focus=focus or None, length=length or None)
+    plan.update(_dir=str(pdir), inputs=[str(pdir / "media")], smart=smart, focus=focus or None, length=length or None,
+                captions=CAPTION_CHOICES.get(captions, "mix"))
     save_plan(plan)
     info = (f"**Done!** {summary['duration']}s · {summary['shots']} shots · style *{summary['style']}* · "
             f"music: {summary['music']} · {summary['subtitles']} subtitle lines"
@@ -352,12 +356,12 @@ def blend(plan, shot_table, sub_table, files, style, title, music_volume, mood, 
             mood=None if not mood or mood == "default" else mood, subtitles=plan.get("subtitles", True),
             resolution=int(plan.get("resolution", 1080)), music_volume=music_volume / 100.0,
             progress=lambda frac, msg: progress(frac, desc=msg), log=log_lines.append,
-            smart=plan.get("smart", True), focus=plan.get("focus"))
+            smart=plan.get("smart", True), focus=plan.get("focus"), captions=plan.get("captions", "mix"))
     except Exception as e:
         raise fail(e, log_lines)
     new = autoedit.load_plan(summary["plan"])
     new.update(_dir=str(pdir), inputs=inputs, smart=plan.get("smart", True), focus=plan.get("focus"),
-               length=plan.get("length"))
+               length=plan.get("length"), captions=plan.get("captions", "mix"))
     save_plan(new)
     downloads = [summary["output"]] + ([summary["srt"]] if summary["srt"] else [])
     msg = (f"**Blended in and re-edited!** {summary['duration']}s · {summary['shots']} shots. "
@@ -631,6 +635,8 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                     smart = gr.Checkbox(value=True, label="🧠 Smart AI: understands what's in your shots (free, offline)")
                     title = gr.Textbox(label="Title (optional)", placeholder="e.g. Bali Trip 2026")
                     subtitle_text = gr.Textbox(label="Small line under the title (optional, default: the date)")
+                    captions = gr.Dropdown(list(CAPTION_CHOICES), value=list(CAPTION_CHOICES)[0],
+                                           label="💬 Captions about what you're doing (e.g. 今天来尝试 coconut boat la~)")
                     with gr.Accordion("More options", open=False):
                         aspect = gr.Dropdown(ASPECT_CHOICES, value="default", label="Shape")
                         length = gr.Slider(0, 600, value=0, step=5, label="Length in seconds (0 = automatic)")
@@ -731,7 +737,7 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
 
     edit_outs = [plan_state, shot_table, sub_table, gallery, e_style, e_title, e_volume, e_mood, edit_msg]
     go.click(make, [files, style, focus, smart, aspect, length, title, subtitle_text, music_file, mood, subs, lang,
-                    translate, quality, music_volume], [video, downloads, info, details] + edit_outs)
+                    translate, quality, music_volume, captions], [video, downloads, info, details] + edit_outs)
     remake_btn.click(remake, [plan_state, shot_table, sub_table, e_style, e_title, e_volume, e_mood, e_music],
                      [e_video, e_downloads] + edit_outs)
     lively_btn.click(lively, [plan_state, shot_table, sub_table, e_style, e_title, e_volume, e_mood, e_music],

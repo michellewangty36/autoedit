@@ -56,6 +56,46 @@ NEGATIVE = [
     "an empty boring wall",
 ]
 
+# "what are we doing now" captions: what CLIP should look for -> (English, Chinese, Chinese-English mix)
+ACTIVITIES = {
+    "coconut boat": ("people riding a round bamboo basket boat on a river", "Trying the coconut boat today!", "今天来坐椰子船~", "今天来尝试 coconut boat la~"),
+    "boat trip": ("a boat ride on a river or the sea", "Boat ride time!", "坐船去咯~", "坐 boat 游河 la~"),
+    "fishing": ("a fisherman throwing a fishing net from a boat", "Watching the fishermen at work", "看渔夫撒网~", "看人家撒网捉鱼 wow~"),
+    "cable car": ("a cable car gondola high above mountains", "Up we go on the cable car!", "坐缆车上山咯~", "坐 cable car 上山 la~"),
+    "theme park": ("an amusement park with rides and castles", "Theme park day!", "今天去游乐园~", "今天去 theme park 玩 la~"),
+    "show": ("a stage show with dancers in costumes", "Catching a show", "来看表演~", "来看 show 咯~"),
+    "lanterns": ("colorful lanterns glowing at night in an old town", "Lantern night", "看灯笼夜景~", "晚上看 lantern 好美~"),
+    "old town": ("a historic old town street with yellow buildings", "Exploring the old town", "逛古镇咯~", "来逛 old town la~"),
+    "night view": ("city lights reflecting on a river at night", "Night views", "看夜景~", "晚上的 view 太美了~"),
+    "bridge": ("a big bridge lit up at night", "That bridge though!", "来看大桥~", "来看 bridge 咯~"),
+    "temple": ("a buddhist temple or pagoda", "Visiting the temple", "参观寺庙~", "来参观 temple~"),
+    "church": ("a church or cathedral building", "Visiting the church", "来看教堂~", "来看 church 咯~"),
+    "beach": ("people at a sunny beach with blue sea", "Beach time!", "去海边咯~", "Beach time la~"),
+    "pool": ("a hotel swimming pool", "Pool time", "泡泳池~", "去 pool 泡一下~"),
+    "sunset": ("a sunset sky over the water", "Sunset vibes", "看日落~", "看 sunset 咯~"),
+    "mountains": ("hiking on a green mountain trail", "Into the mountains", "去爬山~", "去爬山 hiking la~"),
+    "waterfall": ("a waterfall in the forest", "Waterfall!", "看瀑布~", "来看 waterfall~"),
+    "garden": ("a beautiful flower garden", "Flower garden", "逛花园~", "来逛 garden 拍照~"),
+    "seafood": ("a seafood dinner with prawns lobster and crab", "Seafood feast!", "吃海鲜大餐~", "今天来吃 seafood la~"),
+    "dinner": ("a restaurant table full of dishes", "Dinner time", "开饭咯~", "Dinner time 开吃 la~"),
+    "street food": ("street food from a roadside stall", "Street food hunting", "吃街边小吃~", "来吃 street food 咯~"),
+    "noodles": ("a bowl of noodle soup like pho", "Noodle time", "来一碗粉~", "来一碗 pho la~"),
+    "coffee": ("a cup of coffee in a cafe", "Coffee break", "喝咖啡~", "Coffee break 一下~"),
+    "drinks": ("holding a cold drink or bubble tea in hand", "Something to drink", "喝点东西~", "来一杯 drink 先~"),
+    "dessert": ("desserts cakes and pastries", "Something sweet", "吃甜点~", "吃 dessert 咯~"),
+    "bakery": ("a bakery shop display with breads and pastries", "Bakery stop", "去买面包~", "去 bakery 买东西吃~"),
+    "market": ("a busy local market with stalls", "Market walk", "逛市场~", "来逛 market la~"),
+    "shopping": ("shopping in a mall or shop", "Shopping time", "去逛街~", "Shopping time 买买买~"),
+    "souvenirs": ("a pile of snacks and souvenirs bought on a trip", "Souvenir haul", "买手信咯~", "买了好多手信 la~"),
+    "hotel": ("a hotel room with a bed and suitcase", "Hotel check-in", "Check-in 酒店~", "Check-in hotel 咯~"),
+    "airport": ("an airport terminal or an airplane on the tarmac", "Off we go!", "出发咯~", "出发去 airport la~"),
+    "plane view": ("the view from an airplane window", "Flying high", "在飞机上~", "Flying 咯~"),
+    "road trip": ("a view of the road from inside a car or bus", "On the road", "坐车出发~", "坐车出发 la~"),
+    "motorbike": ("riding a motorbike on a busy street", "Motorbike ride", "坐摩托~", "坐 motorbike 兜风~"),
+    "city walk": ("walking on a city street with buildings", "City walk", "逛逛市区~", "City walk 一下~"),
+    "group photo": ("a group of friends posing together for a photo", "Squad photo!", "合照时间~", "合照 time~"),
+}
+
 
 def _norm(x):
     x = np.asarray(x, dtype=np.float32)
@@ -76,6 +116,8 @@ class SmartEye:
         self.focus_terms = [t.strip() for t in (focus or "").replace(" and ", ",").split(",") if t.strip()]
         self.focus = _norm(list(self.txt.embed([f"a photo of {t}" for t in self.focus_terms]))) \
             if self.focus_terms else None
+        self.act_names = list(ACTIVITIES)
+        self.acts = _norm(list(self.txt.embed([ACTIVITIES[n][0] for n in self.act_names])))
 
     @staticmethod
     def _load(cls, name):
@@ -109,6 +151,28 @@ class SmartEye:
             s = s + (sf - np.median(sf)) * 60  # strong boost for what you asked for
         labels = [self.pos_names[i] for i in sp.argmax(axis=1)]
         return np.clip(s, -1.5, 2.5), labels
+
+    def activity(self, emb):
+        """Best guess of what is happening in one shot: (name, confidence 0..1) or (None, 0)."""
+        if emb is None:
+            return None, 0.0
+        sims = self.acts @ np.asarray(emb, dtype=np.float32)
+        p = np.exp((sims - sims.max()) * 100)
+        p /= p.sum()
+        k = int(np.argmax(p))
+        return self.act_names[k], float(p[k])
+
+
+def caption_for(activity, lang="mix", place=None):
+    """Turn an activity (and maybe a place) into a short on-screen caption."""
+    if lang == "off":
+        return ""
+    idx = {"en": 1, "zh": 2}.get(lang, 3)
+    if activity in ACTIVITIES:
+        return ACTIVITIES[activity][idx]
+    if place:
+        return {"en": f"Hello {place}!", "zh": f"来到{place}啦~"}.get(lang, f"来到 {place} 啦~")
+    return ""
 
 
 def load(focus=None, log=print):
