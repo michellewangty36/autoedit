@@ -1243,10 +1243,19 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
 
     # ---- chronological order
     allm = items + photo_items
-    with_time = [x for x in allm if x["time"]]
-    use_time = len(with_time) >= 0.8 * len(allm)
-    ordered = sorted(allm, key=lambda x: (x["time"] or dt.datetime.max, natural_key(x["path"].name))) if use_time \
-        else sorted(allm, key=lambda x: natural_key(x["path"].name))
+    use_time = any(x["time"] for x in allm)
+    if use_time:
+        # a file with no date borrows the date of the file next to it (by name), so it doesn't jump around
+        by_name = sorted(allm, key=lambda x: natural_key(x["path"].name))
+        known = [i for i, x in enumerate(by_name) if x["time"]]
+        for i, x in enumerate(by_name):
+            if not x["time"]:
+                j = min(known, key=lambda k: abs(k - i))
+                x["time"] = by_name[j]["time"]
+                x["time_borrowed"] = True
+        ordered = sorted(by_name, key=lambda x: x["time"])  # stable: same time keeps name order
+    else:
+        ordered = sorted(allm, key=lambda x: natural_key(x["path"].name))
     for k, x in enumerate(ordered):
         x["time_key"] = k
 
