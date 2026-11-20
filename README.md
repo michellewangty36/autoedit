@@ -31,6 +31,7 @@ Keep the black window open while you use AutoEdit. Closing it stops the app.
 | 💬 **"What we're doing" captions** | At each new moment it adds a short caption, like **今天来尝试 coconut boat la~**, **来吃 seafood la~** or **来到 Da Nang 啦~** (from the photo's location). Pick 中文 + English mix, 中文, English or Off. Change any caption in the **Text on screen** column in ✂️ Edit. |
 | 📐 **Any shape** | It makes 16:9 (YouTube), 9:16 (TikTok/Reels/Shorts), 1:1 or 4:5 videos. If most of your shots are upright phone videos, the video is upright too. With just one or two clips (a short reel), it keeps almost all of each clip instead of a few seconds. Vertical clips get a blurred background fill, and wide clips are cropped to follow faces. |
 | 🎨 **Looks and effects** | It colour-grades each style, adds transitions, a title card, slow motion for action shots, film grain, vignette, cinematic letterbox bars and fades. It also stabilises shaky clips and fixes washed-out iPhone HDR colours. |
+| 🔇 **Mute** | Tick **Mute the original sound** for music only. You can also turn the sound off for single clips in the timeline. |
 | 🔊 **Loudness** | It sets the volume to the level YouTube, Instagram and TikTok expect. |
 | 📅 **Story order** | It puts everything in the order it was filmed, using the date inside each photo or video. |
 
@@ -40,7 +41,7 @@ After a video is made, open the **✂️ Edit** tab. Your video is shown as a **
 - **Move a shot:** drag it to a new place.
 - **Make it longer or shorter:** drag its right edge (the pink strip).
 - **Remove a shot:** press ✕. It goes to **Removed**, and ↩ puts it back.
-- **Change a shot:** tap it to preview it and change its length, where a clip starts, speed (0.5 is slow motion), text on screen, effect and transition.
+- **Change a shot:** tap it to preview it and change its length, where a clip starts, speed (0.5 is slow motion), its sound (on/off), text on screen, effect and transition.
 - Press **🎬 Re-make video with my changes** when you're happy.
 
 It works on your phone too. **📝 Subtitles** lets you fix any subtitle words or timing. **Table view (advanced)** still has the old table. You can also change the style, title, music mood, volume or song.

@@ -48,7 +48,8 @@ def render(plan, thumbs, effects, transitions):
         keep = sh.get("keep", True)
         attrs = dict(id=i, dur=f"{dur:.2f}", start=f"{float(sh.get('start', 0)):.2f}", speed=sh.get("speed", 1.0),
                      effect=sh.get("effect", "none"), transition=sh.get("transition", "auto"), text=text,
-                     kind=sh["kind"], src=file_url(sh["path"]), name=Path(sh["path"]).name, max=mx)
+                     kind=sh["kind"], src=file_url(sh["path"]), name=Path(sh["path"]).name, max=mx,
+                     mute="off" if sh.get("mute") else "on")
         data = " ".join(f"data-{k}='{html.escape(str(v), quote=True)}'" for k, v in attrs.items())
         return (f"<div class='ae-card' {data} style='width:{max(56, dur * 40):.0f}px'>{img}"
                 f"<span class='ae-dur'>{dur:.1f}s</span>"
@@ -104,6 +105,8 @@ def apply(plan, data):
         if r.get("transition"):
             sh["transition"] = str(r["transition"])
         sh["text"] = str(r.get("text") or "")
+        if sh["kind"] == "video" and r.get("mute") in ("on", "off"):
+            sh["mute"] = r["mute"] == "off"
     return plan
 
 
@@ -177,7 +180,7 @@ JS = r"""
       const keep = !!c.closest('.ae-track');
       out.push({id: +c.dataset.id, keep, order: keep ? o++ : 9999, dur: +c.dataset.dur, start: +c.dataset.start,
                 speed: +c.dataset.speed, effect: c.dataset.effect, transition: c.dataset.transition,
-                text: c.dataset.text || ''});
+                text: c.dataset.text || '', mute: c.dataset.mute || 'on'});
     });
     total();
     const ta = document.querySelector('#ae-tl-data textarea');
@@ -200,7 +203,8 @@ JS = r"""
       `<div class="ae-fields"><div class="ae-name">${esc(c.dataset.name)}</div>` +
       `<label>Length (seconds)<input type="number" step="0.1" min="0.8" data-k="dur" value="${d.toFixed(1)}"></label>` +
       (v ? `<label>Start at (seconds into the clip)<input type="number" step="0.1" min="0" data-k="start" value="${s.toFixed(1)}"></label>` +
-           `<label>Speed (0.5 = slow motion)${sel('speed', ['0.5', '0.75', '1', '1.5', '2'], String(sp))}</label>` : '') +
+           `<label>Speed (0.5 = slow motion)${sel('speed', ['0.5', '0.75', '1', '1.5', '2'], String(sp))}</label>` +
+           `<label>Sound of this clip${sel('mute', ['on', 'off'], c.dataset.mute || 'on')}</label>` : '') +
       `<label>Text on screen<input type="text" data-k="text" value="${esc(c.dataset.text || '')}" placeholder="e.g. 今天来尝试 coconut boat la~"></label>` +
       `<label>Effect${sel('effect', opts.effects || ['none'], c.dataset.effect)}</label>` +
       `<label>Transition in${sel('transition', opts.transitions || ['auto'], c.dataset.transition)}</label></div>`;

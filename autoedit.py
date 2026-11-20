@@ -726,7 +726,8 @@ def render_video_clip(c, out, W, H, style, tr, enc):
         chain.append(style["grade"])
     chain.append("format=yuv420p")
     vf = "[0:v]" + ",".join(chain) + "[v]"
-    vol = style["voice"] if (info["audio"] and slow == 1.0 and c.get("effect") != "reverse") else 0.0
+    vol = style["voice"] if (info["audio"] and slow == 1.0 and c.get("effect") != "reverse"
+                             and not c.get("mute")) else 0.0
     fin = min(tr, c["dur"] / 3) if c.get("index", 0) > 0 else 0.05
     fout = min(tr, c["dur"] / 3)
     cmd = [FFMPEG, "-y", "-v", "error", "-ss", f"{c['start']:.3f}", "-t", f"{src_len + 0.1:.3f}", "-i", str(c["path"])]
@@ -1143,9 +1144,11 @@ def add_captions(chosen, eye, lang="mix", log=print, has_title=False):
 def make_video(inputs, output=None, style="auto", aspect=None, length=None, title=None, subtitle_text=None,
                music=None, mood=None, subtitles=True, sub_language=None, translate=False, whisper_model="small",
                resolution=1080, seed=None, keep_temp=False, music_volume=None, progress=None, log=print,
-               smart=True, focus=None, captions="mix"):
+               smart=True, focus=None, captions="mix", mute=False):
     t_start = time.time()
     rng = random.Random(seed if seed is not None else int(time.time()))
+    if mute:
+        subtitles = False  # the clips' sound is off, so no subtitles of it
 
     def prog(frac, msg):
         log(msg)
@@ -1288,6 +1291,8 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
     S = dict(STYLES[style])
     if music_volume is not None:
         S["music"] = music_volume
+    if mute:
+        S["keep_speech"] = False  # no point keeping whole sentences you won't hear
     if not aspect:
         # mostly upright phone shots -> make an upright (9:16) video so nothing gets cut off
         shapes = [x["info"]["h"] > x["info"]["w"] for x in items] + \
@@ -1477,7 +1482,7 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
                               for l in build_sub_lines(words, H > W)]
         shots.append(sh)
     plan = dict(version=1, style=style, aspect=aspect, resolution=resolution, mood=mood,
-                music=str(music_path) if music_path else None, music_volume=S["music"], title=title or "",
+                music=str(music_path) if music_path else None, music_volume=S["music"], mute=bool(mute), title=title or "",
                 subtitle_text=subtitle_text or "", subtitles=bool(subtitles), language=language,
                 seed=rng.randint(0, 1 << 30), shots=shots)
     return render_plan(plan, output=output, progress=progress, log=log, keep_temp=keep_temp,
@@ -1528,6 +1533,8 @@ def render_plan(plan, output=None, progress=None, log=print, keep_temp=False, _w
     S = dict(STYLES[style])
     if plan.get("music_volume") is not None:
         S["music"] = float(plan["music_volume"])
+    if plan.get("mute"):
+        S["voice"] = 0.0  # music only, no sound from the clips
     W, H = out_size(plan.get("aspect") or S["aspect"], int(plan.get("resolution", 1080)))
     tr = S["tr"]
     mood = plan.get("mood") or S["mood"]
@@ -1715,7 +1722,7 @@ def render_plan(plan, output=None, progress=None, log=print, keep_temp=False, _w
     fc.append(f"[{last}]format=yuv420p[vout]")
     # audio
     has_voice = any(c["kind"] == "video" and c["item"]["info"]["audio"] and c["slow"] == 1.0
-                    and S["voice"] > 0 for c in chosen)
+                    and not c.get("mute") and S["voice"] > 0 for c in chosen)
     fc.append("[0:a]anull[voice]")
     fc.append(f"[{mi}:a]aresample=48000,volume={S['music']}[mus]")
     if has_voice:

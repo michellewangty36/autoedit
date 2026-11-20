@@ -31,6 +31,18 @@ PROJECTS = OUT / "projects"
 STYLE_CHOICES = [("Auto (let it decide)", "auto")] + [
     (f"{k.capitalize()}: {v['desc']}", k) for k, v in autoedit.STYLES.items()]
 STYLE_ONLY = [(f"{k.capitalize()}", k) for k in autoedit.STYLES]
+STYLE_EMOJI = {"auto": "✨", "vlog": "🎥", "travel": "✈️", "cinematic": "🎬", "film": "🎞️", "reels": "📱",
+               "chill": "🌿", "velocity": "⚡", "clean": "🤍", "cozy": "☕", "spooky": "🎃", "throwback": "📼",
+               "y2k": "💿", "moody": "🌧️", "dreamy": "🌸", "festive": "🎄"}
+STYLE_BUTTONS = [(f"{STYLE_EMOJI.get(k, '🎨')} {'Short reel' if k == 'reels' else k.capitalize()}", k)
+                 for k in ["auto", "reels"] + [k for k in autoedit.STYLES if k != "reels"]]
+
+
+def style_help(k):
+    if k == "auto":
+        return "*Auto: AutoEdit picks the style that suits your shots.*"
+    st = autoedit.STYLES.get(k)
+    return f"*{st['desc']}*" if st else ""
 ASPECT_CHOICES = [("Default for style", "default"), ("16:9 YouTube / TV", "16:9"),
                   ("9:16 TikTok / Reels / Shorts", "9:16"), ("1:1 Square", "1:1"), ("4:5 Instagram post", "4:5")]
 MOOD_CHOICES = [("Match the style", "default")] + [(m.capitalize(), m) for m in autoedit.music_gen.MOODS]
@@ -256,7 +268,7 @@ def edit_outputs(plan, msg=""):
     rows, subs = plan_to_tables(plan)
     return (plan, rows, subs, thumbs_for(plan), plan.get("style"), plan.get("title", ""),
             int(round(float(plan.get("music_volume", 0.4)) * 100)), plan.get("mood") or "default", msg,
-            timeline_html(plan))
+            timeline_html(plan), bool(plan.get("mute")))
 
 
 CAPTION_CHOICES = {"中文 + English mix": "mix", "中文": "zh", "English": "en", "Off": "off"}
@@ -264,7 +276,7 @@ CAPTION_CHOICES = {"中文 + English mix": "mix", "中文": "zh", "English": "en
 
 # ------------------------------------------------------------------ actions
 def make(files, style, focus, smart, aspect, length, title, subtitle_text, music_file, mood, subs, lang, translate,
-         quality, music_volume, captions="mix", progress=gr.Progress()):
+         quality, music_volume, captions="mix", mute=False, progress=gr.Progress()):
     if not files:
         raise gr.Error("Please add some photos or videos first.")
     pdir = new_project_dir()
@@ -279,7 +291,7 @@ def make(files, style, focus, smart, aspect, length, title, subtitle_text, music
             mood=None if mood == "default" else mood, subtitles=subs, sub_language=lang or None,
             translate=translate, resolution=QUALITY[quality], music_volume=music_volume / 100.0,
             progress=lambda frac, msg: progress(frac, desc=msg), log=log_lines.append,
-            smart=smart, focus=focus or None, captions=CAPTION_CHOICES.get(captions, "mix"))
+            smart=smart, focus=focus or None, captions=CAPTION_CHOICES.get(captions, "mix"), mute=bool(mute))
     except Exception as e:
         raise fail(e, log_lines)
     plan = autoedit.load_plan(summary["plan"])
@@ -294,7 +306,8 @@ def make(files, style, focus, smart, aspect, length, title, subtitle_text, music
     return (summary["output"], downloads, info, "\n".join(log_lines)) + edit_outputs(plan, "Loaded your video. Change anything below, then press **Re-make video**.")
 
 
-def remake(plan, shot_table, sub_table, style, title, music_volume, mood, music_file, progress=gr.Progress()):
+def remake(plan, shot_table, sub_table, style, title, music_volume, mood, music_file, mute=None,
+           progress=gr.Progress()):
     if not plan:
         raise gr.Error("Make a video first (tab 1), add clips below, or open a saved project.")
     if shot_table is not None:
@@ -302,6 +315,8 @@ def remake(plan, shot_table, sub_table, style, title, music_volume, mood, music_
     plan["style"] = style or plan["style"]
     plan["title"] = title or ""
     plan["music_volume"] = music_volume / 100.0
+    if mute is not None:
+        plan["mute"] = bool(mute)
     if mood and mood != "default":
         plan["mood"] = mood
     if music_file:
@@ -321,12 +336,13 @@ def remake(plan, shot_table, sub_table, style, title, music_volume, mood, music_
     return (summary["output"], downloads) + edit_outputs(plan, msg)
 
 
-def lively(plan, shot_table, sub_table, style, title, music_volume, mood, music_file, progress=gr.Progress()):
+def lively(plan, shot_table, sub_table, style, title, music_volume, mood, music_file, mute=None,
+           progress=gr.Progress()):
     if not plan:
         raise gr.Error("Make a video first, or add some clips.")
     plan = autoedit.make_lively(tables_to_plan(plan, shot_table, sub_table))
     return remake(plan, None, None, style, title, int(plan["music_volume"] * 100),
-                  plan.get("mood") or mood, music_file, progress)
+                  plan.get("mood") or mood, music_file, mute, progress)
 
 
 def add_clips(plan, shot_table, sub_table, files):
@@ -376,7 +392,8 @@ def sort_by_date(plan, new_ids=None):
         shots[i]["order"] = k + 1
 
 
-def blend(plan, shot_table, sub_table, files, style, title, music_volume, mood, music_file, progress=gr.Progress()):
+def blend(plan, shot_table, sub_table, files, style, title, music_volume, mood, music_file, mute=None,
+          progress=gr.Progress()):
     """Mix new photos/videos in with everything from before and let AutoEdit edit it all again."""
     if not plan:
         raise gr.Error("Make a video first, or open a saved project.")
@@ -408,7 +425,8 @@ def blend(plan, shot_table, sub_table, files, style, title, music_volume, mood, 
             mood=None if not mood or mood == "default" else mood, subtitles=plan.get("subtitles", True),
             resolution=int(plan.get("resolution", 1080)), music_volume=music_volume / 100.0,
             progress=lambda frac, msg: progress(frac, desc=msg), log=log_lines.append,
-            smart=plan.get("smart", True), focus=plan.get("focus"), captions=plan.get("captions", "mix"))
+            smart=plan.get("smart", True), focus=plan.get("focus"), captions=plan.get("captions", "mix"),
+            mute=bool(plan.get("mute") if mute is None else mute))
     except Exception as e:
         raise fail(e, log_lines)
     new = autoedit.load_plan(summary["plan"])
@@ -607,6 +625,7 @@ THEME = gr.themes.Soft(primary_hue="fuchsia", secondary_hue="cyan", neutral_hue=
                        font=["Poppins", "Segoe UI", "system-ui", "sans-serif"])
 
 CSS = """
+.ae-style-desc { padding: 2px 14px !important; }
 html, body, gradio-app, .gradio-container, .main, .app {
   background: linear-gradient(-45deg, #ff6ec4, #7873f5, #4ade80, #22d3ee, #fbbf24, #f472b6) !important;
   background-size: 500% 500% !important;
@@ -681,7 +700,10 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
             with gr.Row():
                 with gr.Column(scale=1):
                     files = gr.File(label="1. Your photos & videos", file_count="multiple", type="filepath")
-                    style = gr.Dropdown(STYLE_CHOICES, value="auto", label="2. Style")
+                    style = gr.Radio(STYLE_BUTTONS, value="auto", label="2. Style (tap one)",
+                                     elem_classes=["ae-styles"])
+                    style_desc = gr.Markdown(style_help("auto"), elem_classes=["ae-style-desc"])
+                    mute = gr.Checkbox(value=False, label="🔇 Mute the original sound (music only)")
                     focus = gr.Textbox(label="What should it focus on? (optional)",
                                        placeholder="e.g. food, beach, sunset, my dog")
                     smart = gr.Checkbox(value=True, label="🧠 Smart AI: understands what's in your shots (free, offline)")
@@ -723,11 +745,12 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                                                 "number", "str", "str", "str", "str"],
                                  "Shots: untick Keep to remove, change Order to move, edit Start / Length / Speed / Text")
                 gr.Markdown(TRANSITIONS_HELP)
+            e_style = gr.Radio(STYLE_BUTTONS[1:], label="Style / look (tap one)", elem_classes=["ae-styles"])
             with gr.Row():
-                e_style = gr.Dropdown(STYLE_ONLY, label="Style / look")
                 e_title = gr.Textbox(label="Title (empty = no title)")
                 e_mood = gr.Dropdown(MOOD_CHOICES, value="default", label="Music mood")
                 e_volume = gr.Slider(0, 100, value=40, step=5, label="Music volume")
+                e_mute = gr.Checkbox(value=False, label="🔇 Mute the original sound")
             with gr.Row():
                 e_music = gr.File(label="Change the song (optional)", type="filepath", file_types=["audio"])
                 add_files = gr.File(label="Add more photos / videos", file_count="multiple", type="filepath")
@@ -765,7 +788,8 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                 with gr.Column(scale=1):
                     s_album = gr.Dropdown(album_choices(_s["library"]), label="Your albums (newest first)")
                     with gr.Row():
-                        s_style = gr.Dropdown(STYLE_CHOICES, value="vlog", label="Style")
+                        s_style = gr.Radio(STYLE_BUTTONS, value="vlog", label="Style (tap one)",
+                                           elem_classes=["ae-styles"])
                         s_quality = gr.Radio(list(QUALITY), value="1080p Full HD", label="Quality")
                     s_focus = gr.Textbox(label="What should it focus on? (optional)",
                                          placeholder="e.g. food, Merlion, family")
@@ -791,17 +815,19 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
         p_msg = gr.Markdown()
         p_qr = gr.Image(label="Scan with your phone", visible=False, height=260, show_label=True)
 
-    edit_outs = [plan_state, shot_table, sub_table, gallery, e_style, e_title, e_volume, e_mood, edit_msg, tl_html]
+    style.change(style_help, [style], [style_desc], show_progress="hidden")
+    edit_outs = [plan_state, shot_table, sub_table, gallery, e_style, e_title, e_volume, e_mood, edit_msg, tl_html,
+                 e_mute]
     tl_data.change(timeline_changed, [plan_state, tl_data], [plan_state, shot_table], show_progress="hidden")
     shot_table.input(table_changed, [plan_state, shot_table, sub_table], [tl_html], show_progress="hidden")
     go.click(make, [files, style, focus, smart, aspect, length, title, subtitle_text, music_file, mood, subs, lang,
-                    translate, quality, music_volume, captions], [video, downloads, info, details] + edit_outs)
-    remake_btn.click(remake, [plan_state, shot_table, sub_table, e_style, e_title, e_volume, e_mood, e_music],
+                    translate, quality, music_volume, captions, mute], [video, downloads, info, details] + edit_outs)
+    remake_btn.click(remake, [plan_state, shot_table, sub_table, e_style, e_title, e_volume, e_mood, e_music, e_mute],
                      [e_video, e_downloads] + edit_outs)
-    lively_btn.click(lively, [plan_state, shot_table, sub_table, e_style, e_title, e_volume, e_mood, e_music],
+    lively_btn.click(lively, [plan_state, shot_table, sub_table, e_style, e_title, e_volume, e_mood, e_music, e_mute],
                      [e_video, e_downloads] + edit_outs)
     add_btn.click(add_clips, [plan_state, shot_table, sub_table, add_files], edit_outs)
-    blend_btn.click(blend, [plan_state, shot_table, sub_table, add_files, e_style, e_title, e_volume, e_mood, e_music],
+    blend_btn.click(blend, [plan_state, shot_table, sub_table, add_files, e_style, e_title, e_volume, e_mood, e_music, e_mute],
                     [e_video, e_downloads] + edit_outs)
     open_btn.click(open_project, [open_file], edit_outs)
     s_go.click(sort_now, [s_sources, s_library, s_home, s_auto, s_extra, s_album_name], [s_msg, s_album, s_extra])
