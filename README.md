@@ -35,6 +35,16 @@ Keep the black window open while you use AutoEdit. Closing it stops the app.
 | 🔊 **Loudness** | It sets the volume to the level YouTube, Instagram and TikTok expect. |
 | 📅 **Story order** | It puts everything in the order it was filmed, using the date inside each photo or video. |
 
+## 🪄 Copy the style of a video you like
+
+In **🎬 Make**, open **🪄 Copy the style of a video I like**, upload a reel or video whose style you love and press **Learn this style**. AutoEdit watches it and copies:
+- the **pace**: how long each shot lasts (quick jump cuts or slow and calm)
+- the **shape**: upright, square or wide
+- the **colours**: your footage is colour-matched to look like it
+- the **song** (untick **Use its song too** if you don't want it)
+
+The new style is saved as a 🪄 button, so next time just tap it. (Songs from other people's videos may be copyrighted. Fine for yourself, but Instagram/TikTok may mute it if you post.)
+
 ## ✂️ Edit (edit it myself)
 
 After a video is made, open the **✂️ Edit** tab. Your video is shown as a **timeline** of shots, like CapCut:

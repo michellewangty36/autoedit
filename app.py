@@ -34,8 +34,14 @@ STYLE_ONLY = [(f"{k.capitalize()}", k) for k in autoedit.STYLES]
 STYLE_EMOJI = {"auto": "✨", "vlog": "🎥", "travel": "✈️", "cinematic": "🎬", "film": "🎞️", "reels": "📱",
                "chill": "🌿", "velocity": "⚡", "clean": "🤍", "cozy": "☕", "spooky": "🎃", "throwback": "📼",
                "y2k": "💿", "moody": "🌧️", "dreamy": "🌸", "festive": "🎄"}
-STYLE_BUTTONS = [(f"{STYLE_EMOJI.get(k, '🎨')} {'Short reel' if k == 'reels' else k.capitalize()}", k)
-                 for k in ["auto", "reels"] + [k for k in autoedit.STYLES if k != "reels"]]
+def style_buttons():
+    mine = [k for k, v in autoedit.STYLES.items() if v.get("ref_q") is not None]
+    std = [k for k in autoedit.STYLES if k not in mine and k != "reels"]
+    return [(f"{STYLE_EMOJI.get(k, '🎨')} {'Short reel' if k == 'reels' else k.capitalize()}", k)
+            for k in ["auto", "reels"] + std] + [(f"🪄 {k.replace('-', ' ').title()}", k) for k in mine]
+
+
+STYLE_BUTTONS = style_buttons()
 
 
 TEXT_LOOK_CHOICES = [("⬜ Pill", "pill"), ("🅰️ Bold outline", "bold outline"), ("🟪 Colour box", "colour box"),
@@ -71,6 +77,32 @@ def save_song(f):
 
 def refresh_songs():
     return gr.update(choices=song_choices()), gr.update(choices=song_choices())
+
+
+def learn(ref, name, use_song, progress=gr.Progress()):
+    """Copy the style of a video she likes into a new style."""
+    src = file_path(ref)
+    if not src:
+        raise gr.Error("Upload the video whose style you like first.")
+    progress(0.2, desc="Watching your reference video")
+    log_lines = []
+    try:
+        slug, st = autoedit.learn_style(src, (name or "").strip() or None, log=log_lines.append)
+    except Exception as e:
+        raise fail(e, log_lines)
+    choices = style_buttons()
+    song_upd, music_upd = gr.update(), gr.update()
+    msg = (f"**Learned!** New style **🪄 {slug.replace('-', ' ').title()}** is picked for you: "
+           f"{st['desc'].split(': ', 1)[-1]}. Add your own videos above and press **Make my video**.")
+    if use_song and st.get("ref_song") and Path(st["ref_song"]).exists():
+        SONGS_DIR.mkdir(parents=True, exist_ok=True)
+        dst = SONGS_DIR / f"{slug.replace('-', ' ').title()} (song).m4a"
+        shutil.copy(st["ref_song"], dst)
+        song_upd = gr.update(choices=song_choices(), value=str(dst))
+        music_upd = str(dst)
+        msg += " Its song is picked too."
+    return (gr.update(choices=choices, value=slug), style_help(slug), msg, music_upd, song_upd,
+            gr.update(choices=choices[1:]), gr.update(choices=choices))
 
 
 def style_help(k):
@@ -363,6 +395,8 @@ def remake(plan, shot_table, sub_table, style, title, music_volume, mood, music_
         raise gr.Error("Make a video first (tab 1), add clips below, or open a saved project.")
     if shot_table is not None:
         plan = tables_to_plan(plan, shot_table, sub_table)
+    if style and style != plan.get("style"):
+        plan.pop("grade", None)  # colours matched to an old reference style no longer apply
     plan["style"] = style or plan["style"]
     plan["title"] = title or ""
     plan["music_volume"] = music_volume / 100.0
@@ -759,6 +793,15 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                     style = gr.Radio(STYLE_BUTTONS, value="auto", label="2. Style (tap one)",
                                      elem_classes=["ae-styles"])
                     style_desc = gr.Markdown(style_help("auto"), elem_classes=["ae-style-desc"])
+                    with gr.Accordion("🪄 Copy the style of a video I like", open=False):
+                        ref_file = gr.File(label="A video whose style you like (from TikTok, Instagram, CapCut...)",
+                                           type="filepath", file_types=["video"])
+                        ref_name = gr.Textbox(label="Name for this style (optional)", placeholder="e.g. Bali reel")
+                        ref_song = gr.Checkbox(value=True, label="Use its song too")
+                        learn_btn = gr.Button("🪄 Learn this style", variant="secondary")
+                        learn_msg = gr.Markdown("It copies the pace of the cuts, the shape, the colours and the song. "
+                                                "Your style is saved, so next time just tap it.",
+                                                elem_classes=["ae-style-desc"])
                     mute = gr.Checkbox(value=False, label="🔇 Mute the original sound (music only)")
                     song = gr.Dropdown(song_choices(), value="", label="🎵 Song (every song you upload is kept here)",
                                        filterable=False)
@@ -887,6 +930,7 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
         p_qr = gr.Image(label="Scan with your phone", visible=False, height=260, show_label=True)
 
     style.change(style_help, [style], [style_desc], show_progress="hidden")
+    learn_btn.click(learn, [ref_file, ref_name, ref_song], [style, style_desc, learn_msg, music_file, song, e_style, s_style])
     song.input(pick_song, [song], [music_file], show_progress="hidden")
     e_song.input(pick_song, [e_song], [e_music], show_progress="hidden")
     music_file.upload(save_song, [music_file], [song], show_progress="hidden")

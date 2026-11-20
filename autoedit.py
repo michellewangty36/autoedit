@@ -244,7 +244,9 @@ def load_style_packs(folder=HERE / "styles"):
             STYLES[name] = base
 
 
+MY_STYLES = HERE / "output" / "my-styles"   # styles copied from your own reference videos
 load_style_packs()
+load_style_packs(MY_STYLES)
 
 
 def out_size(aspect, res):
@@ -665,7 +667,8 @@ def make_candidates(item, style, norm):
         blocked = np.zeros(n, bool)
     # shots from scene cuts
     cuts = [0] + [i for i, c in enumerate(m["cut"]) if c] + [n]
-    L = max(style["clip"], MIN_CLIP)
+    min_clip = style.get("min_clip", MIN_CLIP)
+    L = max(style["clip"], min_clip)
     win = max(2, int(round(L * rate)))
     for a, b in zip(cuts[:-1], cuts[1:]):
         # split shot into free (non-speech) runs
@@ -678,7 +681,7 @@ def make_candidates(item, style, norm):
             while j < b and not blocked[j]:
                 j += 1
             run_len = j - i
-            if run_len >= int(MIN_CLIP * 0.8 * rate):
+            if run_len >= max(2, int(min_clip * 0.8 * rate)):
                 seg = scores[i:j]
                 w = min(win, run_len)
                 cs = np.convolve(seg, np.ones(w) / w, mode="valid")
@@ -1062,6 +1065,100 @@ def find_music(mood):
 
 
 # ------------------------------------------------------------------ main pipeline
+# ------------------------------------------------------------------ copy the style of a reference video
+QUANTS = [0.0, 0.05, 0.15, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0]
+
+
+def colour_quantiles(frames):
+    """Per-channel (R, G, B) brightness quantiles of some RGB frames, 0..1."""
+    px = np.concatenate([np.asarray(f, dtype=np.uint8).reshape(-1, 3)[::7] for f in frames])
+    return [[float(np.quantile(px[:, ch], q)) / 255 for q in QUANTS] for ch in range(3)]
+
+
+def match_colours(src_q, ref_q):
+    """An ffmpeg 'curves' filter that makes footage with src_q colours look like ref_q."""
+    parts = []
+    for name, s_, r_ in zip("rgb", src_q, ref_q):
+        pts, last_x = [], -1.0
+        for x, y in zip(s_, r_):
+            x = min(1.0, max(0.0, x))
+            y = min(1.0, max(0.0, y))
+            if x - last_x < 0.02:
+                continue
+            # don't go overboard: part of the way towards the reference, never a huge jump
+            y = x + float(np.clip(0.6 * (y - x), -0.12, 0.12))
+            pts.append(f"{x:.3f}/{y:.3f}")
+            last_x = x
+        if pts and not pts[0].startswith("0.000"):
+            pts.insert(0, "0/0")
+        if not pts[-1].startswith("1.000"):
+            pts.append("1/1")
+        parts.append(f"{name}='{' '.join(pts)}'")
+    return "curves=" + ":".join(parts)
+
+
+def _slug(name):
+    s_ = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return s_ or "my-style"
+
+
+def learn_style(ref, name=None, log=print):
+    """Watch a video you like and save its look as a new style: pace, shape, colours, transitions and song."""
+    ref = Path(ref)
+    info = probe(ref)
+    if not info["video"]:
+        raise ValueError("That file has no video in it.")
+    dur = info["duration"] or 1.0
+    # pace: where the cuts are
+    err = subprocess.run([FFMPEG, "-hide_banner", "-i", str(ref), "-an", "-vf",
+                          "scale=160:-2,select='gt(scene,0.32)',showinfo", "-f", "null", "-"],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace").stderr
+    cuts = sorted({round(float(t), 2) for t in re.findall(r"pts_time:([\d.]+)", err)})
+    bounds = [0.0] + [t for t in cuts if 0.15 < t < dur - 0.15] + [dur]
+    shots = [b - a for a, b in zip(bounds, bounds[1:]) if b - a > 0.12]
+    shot = float(np.median(shots)) if shots else min(dur, 4.0)
+    shot = float(np.clip(shot, 0.5, 8.0))
+    # colours
+    aw = 160
+    ah = max(2, int(round(aw * info["h"] / max(info["w"], 1) / 2)) * 2)
+    raw = subprocess.run([FFMPEG, "-v", "error", "-i", str(ref), "-vf", f"fps={min(4.0, 40 / dur):.3f},scale={aw}:{ah}",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True).stdout
+    n = len(raw) // (aw * ah * 3)
+    frames = [np.frombuffer(raw[i * aw * ah * 3:(i + 1) * aw * ah * 3], np.uint8).reshape(ah, aw, 3) for i in range(n)]
+    ref_q = colour_quantiles(frames) if frames else None
+    sat = float(np.mean([cv2.cvtColor(f, cv2.COLOR_RGB2HSV)[..., 1].mean() / 255 for f in frames])) \
+        if frames and cv2 is not None else 0.35
+    # shape
+    r = info["w"] / max(info["h"], 1)
+    aspect = min({"16:9": 16 / 9, "9:16": 9 / 16, "1:1": 1.0, "4:5": 0.8}.items(), key=lambda kv: abs(kv[1] - r))[0]
+    base = "reels" if aspect in ("9:16", "4:5") else "vlog"
+    fast = shot < 1.3
+    slug = _slug(name or ref.stem)
+    MY_STYLES.mkdir(parents=True, exist_ok=True)
+    song = None
+    if info["audio"]:
+        song = MY_STYLES / f"{slug}-song.m4a"
+        try:
+            run([FFMPEG, "-y", "-v", "error", "-i", str(ref), "-vn", "-ac", "2", "-c:a", "aac", "-b:a", "192k", str(song)],
+                "saving the song")
+        except RuntimeError:
+            song = None
+    shape_word = {"9:16": "upright 9:16", "4:5": "upright 4:5", "1:1": "square", "16:9": "wide 16:9"}[aspect]
+    st = dict(extends=base, aspect=aspect, clip=round(shot, 2), photo=round(max(shot * 1.1, 0.6), 2),
+              min_clip=round(max(0.45, shot * 0.75), 2), min_photo=round(max(0.5, shot * 0.85), 2),
+              tr=0.1 if fast else (0.3 if shot < 3 else 0.6),
+              transitions=["fade"] if fast else ["fade", "dissolve", "smoothleft", "zoomin"],
+              grade="", ref_q=ref_q, ref_sat=round(sat, 3), ref_song=str(song) if song else None,
+              desc=f"Copied from {ref.name}: shots about {shot:.1f}s each, {shape_word}, its colours")
+    pack = {"about": f"Style copied from {ref.name}", "styles": {slug: st}}
+    (MY_STYLES / f"{slug}.json").write_text(json.dumps(pack, indent=1, ensure_ascii=False), encoding="utf-8")
+    full = dict(STYLES.get(base, STYLES["vlog"]))
+    full.update({k: v for k, v in st.items() if k != "extends"})
+    STYLES[slug] = full
+    log(f"Learned style '{slug}': {full['desc']}")
+    return slug, full
+
+
 # ------------------------------------------------------------------ choosing: clear shots, no repeats, captions
 def media_time_gps(path):
     """When and where a photo/video was taken (local time), using the same rules as the photo sorter."""
@@ -1270,6 +1367,13 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
         when, gps = media_time_gps(p)
         photo_items.append(dict(kind="photo", path=p, meta=meta, time=when, gps=gps))
     # ---- smart AI: understand what is in every shot (free, runs on this computer)
+    # colours of your footage (to match a copied style's look)
+    try:
+        sample = [t for it in items for t in it["m"].get("thumbs", [])[::3]][:120] + \
+                 [np.asarray(ph["meta"]["thumb"].convert("RGB")) for ph in photo_items[:120]]
+        src_q = colour_quantiles(sample) if sample else None
+    except Exception:
+        src_q = None
     eye = None
     if smart:
         prog(0.28, "Smart AI is looking at your shots" + (f" (focus: {focus})" if focus else ""))
@@ -1364,6 +1468,9 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
     S = dict(STYLES[style])
     if music_volume is not None:
         S["music"] = music_volume
+    if S.get("ref_q") and src_q:
+        S["grade"] = match_colours(src_q, S["ref_q"])
+        log("  matching the colours of your reference video")
     if mute:
         S["keep_speech"] = False  # no point keeping whole sentences you won't hear
     if not aspect:
@@ -1389,7 +1496,8 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
     if clear and len(clear) < len(cands):
         log(f"  left out {len(cands) - len(clear)} blurry, dark or shaky video moment(s)")
         cands = clear
-    small = total_video <= 60 and len(items) + len(photo_items) <= 3
+    few = total_video <= 60 and len(items) + len(photo_items) <= 3
+    small = few and S["clip"] >= 1.5
     if small:
         # just a clip or two: keep (almost) all of it instead of picking a couple of seconds
         for it in items:
@@ -1403,11 +1511,25 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
                 base.update(start=a, dur=b - a, lim_start=a, lim_end=b, speech=False,
                             score=max([c["score"] for c in whole] + [0.0]) + 1.0)
                 cands.append(base)
+    elif few:
+        # fast style on a clip or two: cut the whole clip into quick shots (a jump-cut reel)
+        L = max(S["clip"], S.get("min_clip", MIN_CLIP))
+        for it in items:
+            sc = it.get("scores")
+            d, rate = it["info"]["duration"], it["m"]["rate"]
+            t0 = 0.2
+            while t0 + L <= d - 0.1:
+                ia, ib = int(t0 * rate), max(int(t0 * rate) + 1, int((t0 + L) * rate))
+                cands.append(dict(kind="video", path=it["path"], item=it, start=t0, dur=L, lim_start=t0,
+                                  lim_end=min(d, t0 + L + 0.5), speech=False, motion=0.0, face_x=None, shaky=False,
+                                  sharp=1.0, bright=0.5, time_key=it["time_key"],
+                                  score=float(np.mean(sc[ia:ib])) if sc is not None and len(sc) > ia else 0.0))
+                t0 += L
     else:
         photo_items, cands = pick_variety(photo_items, cands, use_time, log)
 
     # ---- duration budget
-    P = max(S["photo"], MIN_PHOTO)
+    P = max(S["photo"], S.get("min_photo", MIN_PHOTO))
     speech_c = [c for c in cands if c["speech"]]
     if length:
         target = float(length)
@@ -1496,11 +1618,11 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
             c["dur"] = max(c["dur"], 2.0) if c["kind"] == "photo" else c["dur"]
             break
         if c["kind"] == "photo":
-            d_min, d_max = max(MIN_PHOTO * 0.9, 2 * tr + 0.4), 99
+            d_min, d_max = max(S.get("min_photo", MIN_PHOTO) * 0.9, 2 * tr + 0.4), 99
         else:
             slow = c.get("slow", 1.0)
             avail = (c["lim_end"] - c["start"]) * slow
-            d_min = max(MIN_CLIP * 0.9, 2 * tr + 0.3) if not c["speech"] else c["dur"]
+            d_min = max(S.get("min_clip", MIN_CLIP) * 0.9, 2 * tr + 0.3) if not c["speech"] else c["dur"]
             d_max = min(avail, c["dur"] + (0.6 if c["speech"] else 2.0)) if c["speech"] else avail
             d_min = min(d_min, d_max)
         mid = t + c["dur"] - tr / 2 - beat_off
@@ -1555,7 +1677,8 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
                               for l in build_sub_lines(words, H > W)]
         shots.append(sh)
     plan = dict(version=1, style=style, aspect=aspect, resolution=resolution, mood=mood,
-                music=str(music_path) if music_path else None, music_volume=S["music"], mute=bool(mute), title=title or "",
+                music=str(music_path) if music_path else None, music_volume=S["music"], mute=bool(mute), grade=S["grade"] if S.get("ref_q") else None,
+                title=title or "",
                 subtitle_text=subtitle_text or "", subtitles=bool(subtitles), language=language,
                 seed=rng.randint(0, 1 << 30), shots=shots)
     return render_plan(plan, output=output, progress=progress, log=log, keep_temp=keep_temp,
@@ -1606,6 +1729,8 @@ def render_plan(plan, output=None, progress=None, log=print, keep_temp=False, _w
     S = dict(STYLES[style])
     if plan.get("music_volume") is not None:
         S["music"] = float(plan["music_volume"])
+    if plan.get("grade") is not None:
+        S["grade"] = plan["grade"]  # colours matched to a reference video
     if plan.get("mute"):
         S["voice"] = 0.0  # music only, no sound from the clips
     W, H = out_size(plan.get("aspect") or S["aspect"], int(plan.get("resolution", 1080)))
