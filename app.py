@@ -42,6 +42,37 @@ TEXT_LOOK_CHOICES = [("⬜ Pill", "pill"), ("🅰️ Bold outline", "bold outlin
                      ("💡 Neon", "neon"), ("✍️ Handwriting", "handwriting"), ("🌑 Shadow", "shadow")]
 
 
+SONGS_DIR = HERE / "music" / "My songs"
+
+
+def song_choices():
+    """Every song you've used before (saved in music/My songs) plus anything in the music folder."""
+    folder = HERE / "music"
+    files = sorted((f for f in folder.rglob("*") if f.suffix.lower() in autoedit.AUDIO_EXT), key=lambda f: f.stem.lower()) \
+        if folder.exists() else []
+    return [("🎼 New music made for this video (free to post)", "")] + [(f"🎵 {f.stem}", str(f)) for f in files]
+
+
+def pick_song(path):
+    return path or None
+
+
+def save_song(f):
+    """Keep every song you upload, so next time you can just pick it."""
+    src = file_path(f)
+    if not src:
+        return gr.update()
+    SONGS_DIR.mkdir(parents=True, exist_ok=True)
+    dst = SONGS_DIR / Path(src).name
+    if not dst.exists():
+        shutil.copy(src, dst)
+    return gr.update(choices=song_choices(), value=str(dst))
+
+
+def refresh_songs():
+    return gr.update(choices=song_choices()), gr.update(choices=song_choices())
+
+
 def style_help(k):
     if k == "auto":
         return "*Auto: AutoEdit picks the style that suits your shots.*"
@@ -729,6 +760,8 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                                      elem_classes=["ae-styles"])
                     style_desc = gr.Markdown(style_help("auto"), elem_classes=["ae-style-desc"])
                     mute = gr.Checkbox(value=False, label="🔇 Mute the original sound (music only)")
+                    song = gr.Dropdown(song_choices(), value="", label="🎵 Song (every song you upload is kept here)",
+                                       filterable=False)
                     focus = gr.Textbox(label="What should it focus on? (optional)",
                                        placeholder="e.g. food, beach, sunset, my dog")
                     smart = gr.Checkbox(value=True, label="🧠 Smart AI: understands what's in your shots (free, offline)")
@@ -744,7 +777,8 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                         translate = gr.Checkbox(value=False, label="Translate subtitles to English")
                         music_file = gr.File(label="Your own song (optional, mp3/wav/m4a)", type="filepath",
                                              file_types=["audio"])
-                        mood = gr.Dropdown(MOOD_CHOICES, value="default", label="Music mood (if no song uploaded)")
+                        mood = gr.Dropdown(MOOD_CHOICES, value="default", label="Music mood (if no song uploaded)",
+                                           filterable=False)
                         music_volume = gr.Slider(0, 100, value=40, step=5, label="Music volume")
                         quality = gr.Radio(list(QUALITY), value="1080p Full HD", label="Quality")
                     go = gr.Button("🎬 Make my video", variant="primary", size="lg")
@@ -783,7 +817,9 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                 gr.Markdown("Want one shot to look different? Tap it in the timeline and change its text look there.")
             with gr.Row():
                 e_title = gr.Textbox(label="Title (empty = no title)")
-                e_mood = gr.Dropdown(MOOD_CHOICES, value="default", label="Music mood")
+                e_song = gr.Dropdown(song_choices(), value=None, label="🎵 Change the song", filterable=False)
+                e_mood = gr.Dropdown(MOOD_CHOICES, value="default", label="Music mood (for new music)",
+                                     filterable=False)
                 e_volume = gr.Slider(0, 100, value=40, step=5, label="Music volume")
                 e_mute = gr.Checkbox(value=False, label="🔇 Mute the original sound")
             with gr.Row():
@@ -851,6 +887,11 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
         p_qr = gr.Image(label="Scan with your phone", visible=False, height=260, show_label=True)
 
     style.change(style_help, [style], [style_desc], show_progress="hidden")
+    song.input(pick_song, [song], [music_file], show_progress="hidden")
+    e_song.input(pick_song, [e_song], [e_music], show_progress="hidden")
+    music_file.upload(save_song, [music_file], [song], show_progress="hidden")
+    e_music.upload(save_song, [e_music], [e_song], show_progress="hidden")
+    demo.load(refresh_songs, None, [song, e_song], show_progress="hidden")
     edit_outs = [plan_state, shot_table, sub_table, gallery, e_style, e_title, e_volume, e_mood, edit_msg, tl_html,
                  e_mute, e_tlook, e_tcolor, e_tpos, e_slook, e_scolor]
     text_ins = [e_tlook, e_tcolor, e_tpos, e_slook, e_scolor]
@@ -885,7 +926,7 @@ if __name__ == "__main__":
         kw = dict(server_name="0.0.0.0", auth=("me", _ps["password"]),
                   auth_message="AutoEdit: type username me and your password.")
         print(f"Phone access is on: open http://{lan_ip()}:7860 on your phone (same Wi-Fi).")
-    allowed = [str(OUT)]
+    allowed = [str(OUT), str(HERE / "music")]
     try:
         lib = sorter.load_settings().get("library")
         if lib and Path(lib).exists():
