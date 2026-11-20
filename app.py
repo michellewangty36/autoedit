@@ -22,7 +22,8 @@ import gradio as gr
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-import autoedit  # noqa: E402
+import autoedit
+import timeline  # noqa: E402
 import sorter  # noqa: E402
 
 OUT = HERE / "output"
@@ -96,9 +97,16 @@ def file_path(f):
 # ------------------------------------------------------------------ plan <-> tables
 def thumbs_for(plan):
     """Small picture of every shot, for the gallery."""
+    m = thumb_map(plan)
+    return [(m[i], f"ID {i} · {Path(sh['path']).name}" + ("" if sh.get("keep", True) else " (removed)"))
+            for i, sh in enumerate(plan["shots"]) if i in m]
+
+
+def thumb_map(plan):
+    """{shot index: small picture of the shot}"""
     tdir = Path(plan["_dir"]) / "thumbs"
     tdir.mkdir(exist_ok=True)
-    items = []
+    items = {}
     for i, sh in enumerate(plan["shots"]):
         t = tdir / f"{i}_{int(float(sh['start']) * 10)}.jpg"
         if not t.exists():
@@ -116,9 +124,28 @@ def thumbs_for(plan):
             except Exception:
                 pass
         if t.exists():
-            mark = "" if sh.get("keep", True) else " (removed)"
-            items.append((str(t), f"ID {i} · {Path(sh['path']).name}{mark}"))
+            items[i] = str(t)
     return items
+
+
+def timeline_html(plan):
+    if not plan or not plan.get("shots") or not plan.get("_dir"):
+        return timeline.render(None, {}, [], [])
+    return timeline.render(plan, thumb_map(plan), autoedit.EFFECTS, autoedit.XFADE_TRANSITIONS)
+
+
+def timeline_changed(plan, data):
+    if not plan:
+        return gr.update(), gr.update()
+    plan = timeline.apply(plan, data)
+    save_plan(plan)
+    return plan, plan_to_tables(plan)[0]
+
+
+def table_changed(plan, shot_table, sub_table):
+    if not plan:
+        return gr.update()
+    return timeline_html(tables_to_plan(plan, shot_table, sub_table))
 
 
 def plan_to_tables(plan):
@@ -228,7 +255,8 @@ def save_plan(plan):
 def edit_outputs(plan, msg=""):
     rows, subs = plan_to_tables(plan)
     return (plan, rows, subs, thumbs_for(plan), plan.get("style"), plan.get("title", ""),
-            int(round(float(plan.get("music_volume", 0.4)) * 100)), plan.get("mood") or "default", msg)
+            int(round(float(plan.get("music_volume", 0.4)) * 100)), plan.get("mood") or "default", msg,
+            timeline_html(plan))
 
 
 CAPTION_CHOICES = {"中文 + English mix": "mix", "中文": "zh", "English": "en", "Off": "off"}
@@ -314,14 +342,38 @@ def add_clips(plan, shot_table, sub_table, files):
     media.mkdir(exist_ok=True)
     order = max([float(s.get("order", 0)) for s in plan["shots"]] + [0])
     added = 0
+    new_ids = []
     for p in copy_in(files, media):
         sh = shot_from_file(p, order + 1)
         if sh:
             order += 1
+            new_ids.append(len(plan["shots"]))
             plan["shots"].append(sh)
             added += 1
+    sort_by_date(plan, new_ids)
     save_plan(plan)
-    return edit_outputs(plan, f"Added {added} clip(s) at the end. Change their **Order** to move them.")
+    return edit_outputs(plan, f"Added {added} clip(s) in date order. Drag them in the timeline to move them.")
+
+
+def sort_by_date(plan, new_ids=None):
+    """Slot new shots into the timeline by the date they were taken, keeping your own order for the rest."""
+    shots = plan["shots"]
+    for sh in shots:
+        if not sh.get("time"):
+            when, _ = autoedit.media_time_gps(sh["path"])
+            if when is not None:
+                sh["time"] = (when + dt.timedelta(seconds=float(sh.get("start", 0)))).isoformat(timespec="seconds")
+    new_ids = set(new_ids if new_ids is not None else [])
+    kept = sorted([i for i, sh in enumerate(shots) if sh.get("keep", True) and i not in new_ids],
+                  key=lambda i: float(shots[i].get("order", i + 1)))
+    for j in sorted(new_ids, key=lambda i: shots[i].get("time") or "9999"):
+        t = shots[j].get("time")
+        pos = len(kept)
+        if t:
+            pos = next((k for k, i in enumerate(kept) if (shots[i].get("time") or "") > t), len(kept))
+        kept.insert(pos, j)
+    for k, i in enumerate(kept):
+        shots[i]["order"] = k + 1
 
 
 def blend(plan, shot_table, sub_table, files, style, title, music_volume, mood, music_file, progress=gr.Progress()):
@@ -659,14 +711,18 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
         with gr.Tab("✂️ Edit"):
             edit_msg = gr.Markdown("Make a video in the first tab, or add your own clips below to start from "
                                    "scratch, or open a saved project.")
-            gallery = gr.Gallery(label="Your shots (ID number matches the table)", columns=6, height=260,
-                                 allow_preview=True)
-            shot_table = _df(SHOT_HEADERS, ["number", "number", "bool", "str", "str", "number", "number", "number",
-                                            "str", "str", "str", "str"],
-                             "Shots: untick Keep to remove, change Order to move, edit Start / Length / Speed / Text")
-            gr.Markdown(TRANSITIONS_HELP)
-            sub_table = _df(SUB_HEADERS, ["number", "number", "number", "str"],
-                            "Subtitles: fix the words or timing; delete the text to remove a line")
+            tl_html = gr.HTML(timeline_html(None))
+            tl_data = gr.Textbox(elem_id="ae-tl-data", show_label=False, container=False)
+            with gr.Accordion("📝 Subtitles", open=False):
+                sub_table = _df(SUB_HEADERS, ["number", "number", "number", "str"],
+                                "Subtitles: fix the words or timing; delete the text to remove a line")
+            with gr.Accordion("Table view (advanced)", open=False):
+                gallery = gr.Gallery(label="Your shots (ID number matches the table)", columns=6, height=260,
+                                     allow_preview=True)
+                shot_table = _df(SHOT_HEADERS, ["number", "number", "bool", "str", "str", "number", "number",
+                                                "number", "str", "str", "str", "str"],
+                                 "Shots: untick Keep to remove, change Order to move, edit Start / Length / Speed / Text")
+                gr.Markdown(TRANSITIONS_HELP)
             with gr.Row():
                 e_style = gr.Dropdown(STYLE_ONLY, label="Style / look")
                 e_title = gr.Textbox(label="Title (empty = no title)")
@@ -677,7 +733,7 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                 add_files = gr.File(label="Add more photos / videos", file_count="multiple", type="filepath")
                 open_file = gr.File(label="Open a saved project (.autoedit.json)", type="filepath")
             with gr.Row():
-                add_btn = gr.Button("➕ Add these clips at the end", variant="secondary")
+                add_btn = gr.Button("➕ Add them in by date (keep my edits)", variant="secondary")
                 blend_btn = gr.Button("🔄 Blend them in & re-edit automatically", variant="secondary")
                 open_btn = gr.Button("📂 Open project", variant="secondary")
                 lively_btn = gr.Button("✨ Make it more lively", size="lg", elem_classes=["ae-lively"])
@@ -735,7 +791,9 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
         p_msg = gr.Markdown()
         p_qr = gr.Image(label="Scan with your phone", visible=False, height=260, show_label=True)
 
-    edit_outs = [plan_state, shot_table, sub_table, gallery, e_style, e_title, e_volume, e_mood, edit_msg]
+    edit_outs = [plan_state, shot_table, sub_table, gallery, e_style, e_title, e_volume, e_mood, edit_msg, tl_html]
+    tl_data.change(timeline_changed, [plan_state, tl_data], [plan_state, shot_table], show_progress="hidden")
+    shot_table.input(table_changed, [plan_state, shot_table, sub_table], [tl_html], show_progress="hidden")
     go.click(make, [files, style, focus, smart, aspect, length, title, subtitle_text, music_file, mood, subs, lang,
                     translate, quality, music_volume, captions], [video, downloads, info, details] + edit_outs)
     remake_btn.click(remake, [plan_state, shot_table, sub_table, e_style, e_title, e_volume, e_mood, e_music],
@@ -764,4 +822,16 @@ if __name__ == "__main__":
         kw = dict(server_name="0.0.0.0", auth=("me", _ps["password"]),
                   auth_message="AutoEdit: type username me and your password.")
         print(f"Phone access is on: open http://{lan_ip()}:7860 on your phone (same Wi-Fi).")
-    demo.queue().launch(inbrowser=True, allowed_paths=[str(OUT)], theme=THEME, css=CSS, **kw)
+    allowed = [str(OUT)]
+    try:
+        lib = sorter.load_settings().get("library")
+        if lib and Path(lib).exists():
+            allowed.append(str(lib))  # so the timeline can preview clips from your sorted albums
+    except Exception:
+        pass
+    import inspect
+    if "head" in inspect.signature(demo.launch).parameters:
+        kw["head"] = timeline.JS
+    else:
+        demo.head = (getattr(demo, "head", None) or "") + timeline.JS
+    demo.queue().launch(inbrowser=True, allowed_paths=allowed, theme=THEME, css=CSS + timeline.CSS, **kw)

@@ -1288,6 +1288,13 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
     S = dict(STYLES[style])
     if music_volume is not None:
         S["music"] = music_volume
+    if not aspect:
+        # mostly upright phone shots -> make an upright (9:16) video so nothing gets cut off
+        shapes = [x["info"]["h"] > x["info"]["w"] for x in items] + \
+                 [x["meta"]["size"][1] > x["meta"]["size"][0] for x in photo_items]
+        if shapes and sum(shapes) >= 0.6 * len(shapes) and S["aspect"] == "16:9":
+            aspect = "9:16"
+            log("  most shots are upright, so the video is upright (9:16) too")
     aspect = aspect or S["aspect"]
     W, H = out_size(aspect, resolution)
     tr = S["tr"]
@@ -1304,7 +1311,22 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
     if clear and len(clear) < len(cands):
         log(f"  left out {len(cands) - len(clear)} blurry, dark or shaky video moment(s)")
         cands = clear
-    photo_items, cands = pick_variety(photo_items, cands, use_time, log)
+    small = total_video <= 60 and len(items) + len(photo_items) <= 3
+    if small:
+        # just a clip or two: keep (almost) all of it instead of picking a couple of seconds
+        for it in items:
+            d = it["info"]["duration"]
+            a, b = min(0.3, d * 0.05), max(d - 0.3, d * 0.95)
+            if b - a >= MIN_CLIP:
+                whole = [c for c in cands if c["item"] is it]
+                base = dict(whole[0]) if whole else dict(kind="video", path=it["path"], item=it, speech=False,
+                                                          motion=0.0, face_x=None, shaky=False, sharp=1.0, bright=0.5,
+                                                          time_key=it["time_key"])
+                base.update(start=a, dur=b - a, lim_start=a, lim_end=b, speech=False,
+                            score=max([c["score"] for c in whole] + [0.0]) + 1.0)
+                cands.append(base)
+    else:
+        photo_items, cands = pick_variety(photo_items, cands, use_time, log)
 
     # ---- duration budget
     P = max(S["photo"], MIN_PHOTO)
@@ -1316,6 +1338,8 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
         target = len(photo_items) * P + min(sum(c["dur"] for c in speech_c), 150) \
             + min(0.35 * max(0, free_video), 90)
         target = max(target, len(photo_items) * P + len(items) * S["clip"])
+        if small:
+            target = max(target, 0.95 * total_video + len(photo_items) * P)
         target = float(np.clip(target, 10, 300))
     # photos
     if photo_items and len(photo_items) * P > 0.85 * target and (items or length):
@@ -1359,7 +1383,7 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
     for ph in photo_items:
         chosen.append(dict(kind="photo", path=ph["path"], meta=ph["meta"], dur=P, time_key=ph["time_key"],
                            speech=False, start=0.0, score=0, label=ph["meta"].get("label"), emb=ph["meta"].get("emb"),
-                           moment=ph.get("moment"), gps=ph.get("gps")))
+                           moment=ph.get("moment"), gps=ph.get("gps"), time_dt=ph.get("time")))
     if not chosen:
         raise ValueError("Nothing usable was found in the media.")
     chosen.sort(key=lambda c: (c["time_key"], c.get("start", 0)))
@@ -1435,6 +1459,9 @@ def make_video(inputs, output=None, style="auto", aspect=None, length=None, titl
                   speed=round(1.0 / c.get("slow", 1.0), 3), transition="auto", effect="none", text=c.get("caption", ""),
                   label=c.get("label") or "", speech=bool(c.get("speech")), shaky=bool(c.get("shaky")),
                   face_x=c.get("face_x"))
+        when = (c.get("item") or {}).get("time") if c["kind"] == "video" else c.get("time_dt")
+        if when is not None:
+            sh["time"] = (when + dt.timedelta(seconds=float(c.get("start", 0.0)))).isoformat(timespec="seconds")
         if c["kind"] == "photo":
             sh["face_x"], sh["face_y"] = c["meta"].get("face_x"), c["meta"].get("face_y")
         else:

@@ -29,28 +29,23 @@ Keep the black window open while you use AutoEdit. Closing it stops the app.
 | 🖼️ **Photos come alive** | Photos get smooth zoom and pan ("Ken Burns") that focuses on faces. Blurry and dark photos are left out. Near-duplicate photos (bursts) are removed, and the sharpest one is kept. Every photo stays on screen for at least 2.6 seconds. |
 | 🔁 **No repeats** | Shots taken close together count as one moment. Each moment gets its best few shots (more if it lasted longer), and two shots of the same scene are not both used. |
 | 💬 **"What we're doing" captions** | At each new moment it adds a short caption, like **今天来尝试 coconut boat la~**, **来吃 seafood la~** or **来到 Da Nang 啦~** (from the photo's location). Pick 中文 + English mix, 中文, English or Off. Change any caption in the **Text on screen** column in ✂️ Edit. |
-| 📐 **Any shape** | It makes 16:9 (YouTube), 9:16 (TikTok/Reels/Shorts), 1:1 or 4:5 videos. Vertical clips get a blurred background fill, and wide clips are cropped to follow faces. |
+| 📐 **Any shape** | It makes 16:9 (YouTube), 9:16 (TikTok/Reels/Shorts), 1:1 or 4:5 videos. If most of your shots are upright phone videos, the video is upright too. With just one or two clips (a short reel), it keeps almost all of each clip instead of a few seconds. Vertical clips get a blurred background fill, and wide clips are cropped to follow faces. |
 | 🎨 **Looks and effects** | It colour-grades each style, adds transitions, a title card, slow motion for action shots, film grain, vignette, cinematic letterbox bars and fades. It also stabilises shaky clips and fixes washed-out iPhone HDR colours. |
 | 🔊 **Loudness** | It sets the volume to the level YouTube, Instagram and TikTok expect. |
 | 📅 **Story order** | It puts everything in the order it was filmed, using the date inside each photo or video. |
 
 ## ✂️ Edit (edit it myself)
 
-After a video is made, open the **✂️ Edit** tab. You'll see a picture of every shot and a table where you can change these things:
-- **Keep:** untick it to remove a shot.
-- **Order:** type a new number to move a shot.
-- **Start at** and **Length:** choose which part of a clip is used and how long it lasts.
-- **Speed:** 0.5 is slow motion and 2 is fast.
-- **Transition in:** how the shot appears, such as `circleopen`, `zoomin`, `slideleft` or `fadewhite`.
-- **Effect:** `zoom in`, `punch zoom`, `shake`, `flash`, `glow`, `glitch`, `vintage`, `black & white`, `sepia`, `vivid`, `warm`, `cool`, `blur in`, `mirror` or `reverse`.
-- **Text on screen:** your own caption for that shot.
+After a video is made, open the **✂️ Edit** tab. Your video is shown as a **timeline** of shots, like CapCut:
+- **Move a shot:** drag it to a new place.
+- **Make it longer or shorter:** drag its right edge (the pink strip).
+- **Remove a shot:** press ✕. It goes to **Removed**, and ↩ puts it back.
+- **Change a shot:** tap it to preview it and change its length, where a clip starts, speed (0.5 is slow motion), text on screen, effect and transition.
+- Press **🎬 Re-make video with my changes** when you're happy.
 
-Below the table you can also:
-- Fix any subtitle words or timing.
-- Change the style, title, music mood, volume or song.
-- Add more photos or videos.
+It works on your phone too. **📝 Subtitles** lets you fix any subtitle words or timing. **Table view (advanced)** still has the old table. You can also change the style, title, music mood, volume or song.
 
-**Got more photos later?** Put them in **Add more photos / videos** and press **🔄 Blend them in & re-edit automatically**. AutoEdit mixes them in with everything from before, in date order, skips duplicates and edits the whole video again. Or press **➕ Add these clips at the end** to keep your current edit and just add them.
+**Got more photos later?** Put them in **Add more photos / videos** and press **🔄 Blend them in & re-edit automatically**. AutoEdit mixes them in with everything from before, in date order, skips duplicates and edits the whole video again. Or press **➕ Add them in by date (keep my edits)** to keep your own edit and slot the new shots in where their dates belong.
 
 Then press **🎬 Re-make video with my changes**. If you want more energy, press **✨ Make it more lively**. It adds lively transitions, effects on the beat, quicker shots and upbeat music, and you can still change everything afterwards.
 
