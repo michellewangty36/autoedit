@@ -27,7 +27,7 @@ def file_url(path):
     return FILE_ROUTE + quote(str(Path(path).resolve()).replace("\\", "/"), safe="/:")
 
 
-def render(plan, thumbs, effects, transitions):
+def render(plan, thumbs, effects, transitions, looks=(), positions=(), sizes=()):
     """HTML for the timeline. thumbs: {shot index: thumbnail path}."""
     if not plan or not plan.get("shots"):
         return "<div id='ae-tl' class='ae-empty'>Your timeline appears here after you make a video.</div>"
@@ -49,7 +49,9 @@ def render(plan, thumbs, effects, transitions):
         attrs = dict(id=i, dur=f"{dur:.2f}", start=f"{float(sh.get('start', 0)):.2f}", speed=sh.get("speed", 1.0),
                      effect=sh.get("effect", "none"), transition=sh.get("transition", "auto"), text=text,
                      kind=sh["kind"], src=file_url(sh["path"]), name=Path(sh["path"]).name, max=mx,
-                     mute="off" if sh.get("mute") else "on")
+                     mute="off" if sh.get("mute") else "on", tlook=sh.get("text_look") or "default",
+                     tcolor=sh.get("text_color") or "", tpos=sh.get("text_pos") or "default",
+                     tsize=sh.get("text_size") or "default")
         data = " ".join(f"data-{k}='{html.escape(str(v), quote=True)}'" for k, v in attrs.items())
         return (f"<div class='ae-card' {data} style='width:{max(56, dur * 40):.0f}px'>{img}"
                 f"<span class='ae-dur'>{dur:.1f}s</span>"
@@ -62,7 +64,9 @@ def render(plan, thumbs, effects, transitions):
     removed = "".join(card(i) for i in order if not shots[i].get("keep", True))
     total = sum(float(shots[i].get("dur", 3)) for i in order if shots[i].get("keep", True))
     n = sum(1 for sh in shots if sh.get("keep", True))
-    opts = html.escape(json.dumps(dict(effects=list(effects), transitions=["auto"] + list(transitions))), quote=True)
+    opts = html.escape(json.dumps(dict(effects=list(effects), transitions=["auto"] + list(transitions),
+                                       looks=["default"] + list(looks), positions=["default"] + list(positions),
+                                       sizes=["default"] + list(sizes))), quote=True)
     return (f"<div id='ae-tl' data-opts='{opts}'>"
             f"<div class='ae-tl-help'>Drag a shot to move it · drag its right edge to change the length · "
             f"✕ removes it · tap it to preview and edit</div>"
@@ -105,6 +109,12 @@ def apply(plan, data):
         if r.get("transition"):
             sh["transition"] = str(r["transition"])
         sh["text"] = str(r.get("text") or "")
+        for k, key in (("tlook", "text_look"), ("tpos", "text_pos"), ("tsize", "text_size"), ("tcolor", "text_color")):
+            v = str(r.get(k) or "")
+            if v and v != "default":
+                sh[key] = v
+            else:
+                sh.pop(key, None)
         if sh["kind"] == "video" and r.get("mute") in ("on", "off"):
             sh["mute"] = r["mute"] == "off"
     return plan
@@ -149,6 +159,8 @@ CSS = """
 #ae-tl .ae-fields input, #ae-tl .ae-fields select { padding: 6px 8px; border-radius: 8px;
   border: 1px solid rgba(127,127,127,.5); background: transparent; color: inherit; font-size: 15px; }
 #ae-tl .ae-fields select option { color: #000; }
+#ae-tl .ae-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#ae-tl .ae-fields input[type=color] { height: 38px; padding: 2px; }
 #ae-tl .ae-fields .ae-name { font-weight: 600; word-break: break-all; }
 """
 
@@ -180,7 +192,8 @@ JS = r"""
       const keep = !!c.closest('.ae-track');
       out.push({id: +c.dataset.id, keep, order: keep ? o++ : 9999, dur: +c.dataset.dur, start: +c.dataset.start,
                 speed: +c.dataset.speed, effect: c.dataset.effect, transition: c.dataset.transition,
-                text: c.dataset.text || '', mute: c.dataset.mute || 'on'});
+                text: c.dataset.text || '', mute: c.dataset.mute || 'on', tlook: c.dataset.tlook,
+                tcolor: c.dataset.tcolor, tpos: c.dataset.tpos, tsize: c.dataset.tsize});
     });
     total();
     const ta = document.querySelector('#ae-tl-data textarea');
@@ -206,6 +219,10 @@ JS = r"""
            `<label>Speed (0.5 = slow motion)${sel('speed', ['0.5', '0.75', '1', '1.5', '2'], String(sp))}</label>` +
            `<label>Sound of this clip${sel('mute', ['on', 'off'], c.dataset.mute || 'on')}</label>` : '') +
       `<label>Text on screen<input type="text" data-k="text" value="${esc(c.dataset.text || '')}" placeholder="e.g. 今天来尝试 coconut boat la~"></label>` +
+      `<div class="ae-row"><label>Text look${sel('tlook', opts.looks || ['default'], c.dataset.tlook)}</label>` +
+      `<label>Colour<input type="color" data-k="tcolor" value="${esc(c.dataset.tcolor || '#ffffff')}"></label></div>` +
+      `<div class="ae-row"><label>Where${sel('tpos', opts.positions || ['default'], c.dataset.tpos)}</label>` +
+      `<label>Size${sel('tsize', opts.sizes || ['default'], c.dataset.tsize)}</label></div>` +
       `<label>Effect${sel('effect', opts.effects || ['none'], c.dataset.effect)}</label>` +
       `<label>Transition in${sel('transition', opts.transitions || ['auto'], c.dataset.transition)}</label></div>`;
   }

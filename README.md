@@ -42,6 +42,7 @@ After a video is made, open the **✂️ Edit** tab. Your video is shown as a **
 - **Make it longer or shorter:** drag its right edge (the pink strip).
 - **Remove a shot:** press ✕. It goes to **Removed**, and ↩ puts it back.
 - **Change a shot:** tap it to preview it and change its length, where a clip starts, speed (0.5 is slow motion), its sound (on/off), text on screen, effect and transition.
+- **Text look:** for one shot, tap it and pick the text look (pill, bold outline, colour box, neon, handwriting, shadow), colour, where it sits and its size. For all text and subtitles, open **🔤 Text style & colour**.
 - Press **🎬 Re-make video with my changes** when you're happy.
 
 It works on your phone too. **📝 Subtitles** lets you fix any subtitle words or timing. **Table view (advanced)** still has the old table. You can also change the style, title, music mood, volume or song.

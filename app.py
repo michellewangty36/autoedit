@@ -38,6 +38,10 @@ STYLE_BUTTONS = [(f"{STYLE_EMOJI.get(k, '🎨')} {'Short reel' if k == 'reels' e
                  for k in ["auto", "reels"] + [k for k in autoedit.STYLES if k != "reels"]]
 
 
+TEXT_LOOK_CHOICES = [("⬜ Pill", "pill"), ("🅰️ Bold outline", "bold outline"), ("🟪 Colour box", "colour box"),
+                     ("💡 Neon", "neon"), ("✍️ Handwriting", "handwriting"), ("🌑 Shadow", "shadow")]
+
+
 def style_help(k):
     if k == "auto":
         return "*Auto: AutoEdit picks the style that suits your shots.*"
@@ -143,7 +147,8 @@ def thumb_map(plan):
 def timeline_html(plan):
     if not plan or not plan.get("shots") or not plan.get("_dir"):
         return timeline.render(None, {}, [], [])
-    return timeline.render(plan, thumb_map(plan), autoedit.EFFECTS, autoedit.XFADE_TRANSITIONS)
+    return timeline.render(plan, thumb_map(plan), autoedit.EFFECTS, autoedit.XFADE_TRANSITIONS,
+                           autoedit.TEXT_LOOKS, autoedit.TEXT_POSITIONS, autoedit.TEXT_SIZES)
 
 
 def timeline_changed(plan, data):
@@ -268,7 +273,9 @@ def edit_outputs(plan, msg=""):
     rows, subs = plan_to_tables(plan)
     return (plan, rows, subs, thumbs_for(plan), plan.get("style"), plan.get("title", ""),
             int(round(float(plan.get("music_volume", 0.4)) * 100)), plan.get("mood") or "default", msg,
-            timeline_html(plan), bool(plan.get("mute")))
+            timeline_html(plan), bool(plan.get("mute")), plan.get("text_look") or "pill",
+            plan.get("text_color") or autoedit.TEXT_LOOKS.get(plan.get("text_look") or "pill")[1],
+            plan.get("text_pos") or "top", plan.get("sub_look") or "auto", plan.get("sub_color") or "#ffffff")
 
 
 CAPTION_CHOICES = {"中文 + English mix": "mix", "中文": "zh", "English": "en", "Off": "off"}
@@ -306,8 +313,21 @@ def make(files, style, focus, smart, aspect, length, title, subtitle_text, music
     return (summary["output"], downloads, info, "\n".join(log_lines)) + edit_outputs(plan, "Loaded your video. Change anything below, then press **Re-make video**.")
 
 
+def set_text_looks(plan, tlook, tcolor, tpos, slook, scolor):
+    if tlook:
+        plan["text_look"] = tlook
+    if tcolor:
+        plan["text_color"] = tcolor
+    if tpos:
+        plan["text_pos"] = tpos
+    if slook:
+        plan["sub_look"] = slook if slook != "auto" else None
+    if scolor:
+        plan["sub_color"] = scolor
+
+
 def remake(plan, shot_table, sub_table, style, title, music_volume, mood, music_file, mute=None,
-           progress=gr.Progress()):
+           tlook=None, tcolor=None, tpos=None, slook=None, scolor=None, progress=gr.Progress()):
     if not plan:
         raise gr.Error("Make a video first (tab 1), add clips below, or open a saved project.")
     if shot_table is not None:
@@ -317,6 +337,7 @@ def remake(plan, shot_table, sub_table, style, title, music_volume, mood, music_
     plan["music_volume"] = music_volume / 100.0
     if mute is not None:
         plan["mute"] = bool(mute)
+    set_text_looks(plan, tlook, tcolor, tpos, slook, scolor)
     if mood and mood != "default":
         plan["mood"] = mood
     if music_file:
@@ -337,12 +358,12 @@ def remake(plan, shot_table, sub_table, style, title, music_volume, mood, music_
 
 
 def lively(plan, shot_table, sub_table, style, title, music_volume, mood, music_file, mute=None,
-           progress=gr.Progress()):
+           tlook=None, tcolor=None, tpos=None, slook=None, scolor=None, progress=gr.Progress()):
     if not plan:
         raise gr.Error("Make a video first, or add some clips.")
     plan = autoedit.make_lively(tables_to_plan(plan, shot_table, sub_table))
     return remake(plan, None, None, style, title, int(plan["music_volume"] * 100),
-                  plan.get("mood") or mood, music_file, mute, progress)
+                  plan.get("mood") or mood, music_file, mute, tlook, tcolor, tpos, slook, scolor, progress)
 
 
 def add_clips(plan, shot_table, sub_table, files):
@@ -393,7 +414,7 @@ def sort_by_date(plan, new_ids=None):
 
 
 def blend(plan, shot_table, sub_table, files, style, title, music_volume, mood, music_file, mute=None,
-          progress=gr.Progress()):
+          tlook=None, tcolor=None, tpos=None, slook=None, scolor=None, progress=gr.Progress()):
     """Mix new photos/videos in with everything from before and let AutoEdit edit it all again."""
     if not plan:
         raise gr.Error("Make a video first, or open a saved project.")
@@ -432,6 +453,10 @@ def blend(plan, shot_table, sub_table, files, style, title, music_volume, mood, 
     new = autoedit.load_plan(summary["plan"])
     new.update(_dir=str(pdir), inputs=inputs, smart=plan.get("smart", True), focus=plan.get("focus"),
                length=plan.get("length"), captions=plan.get("captions", "mix"))
+    for k in ("text_look", "text_color", "text_pos", "sub_look", "sub_color"):
+        if plan.get(k):
+            new[k] = plan[k]
+    set_text_looks(new, tlook, tcolor, tpos, slook, scolor)
     save_plan(new)
     downloads = [summary["output"]] + ([summary["srt"]] if summary["srt"] else [])
     msg = (f"**Blended in and re-edited!** {summary['duration']}s · {summary['shots']} shots. "
@@ -746,6 +771,16 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                                  "Shots: untick Keep to remove, change Order to move, edit Start / Length / Speed / Text")
                 gr.Markdown(TRANSITIONS_HELP)
             e_style = gr.Radio(STYLE_BUTTONS[1:], label="Style / look (tap one)", elem_classes=["ae-styles"])
+            with gr.Accordion("🔤 Text style & colour (for all text)", open=False):
+                with gr.Row():
+                    e_tlook = gr.Radio(TEXT_LOOK_CHOICES, value="pill", label="Text on screen: look")
+                    e_tcolor = gr.ColorPicker(value="#141414", label="Text colour")
+                    e_tpos = gr.Radio(autoedit.TEXT_POSITIONS, value="top", label="Where")
+                with gr.Row():
+                    e_slook = gr.Radio([("Style default", "auto")] + TEXT_LOOK_CHOICES, value="auto",
+                                       label="Subtitles: look")
+                    e_scolor = gr.ColorPicker(value="#ffffff", label="Subtitle colour")
+                gr.Markdown("Want one shot to look different? Tap it in the timeline and change its text look there.")
             with gr.Row():
                 e_title = gr.Textbox(label="Title (empty = no title)")
                 e_mood = gr.Dropdown(MOOD_CHOICES, value="default", label="Music mood")
@@ -817,17 +852,19 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
 
     style.change(style_help, [style], [style_desc], show_progress="hidden")
     edit_outs = [plan_state, shot_table, sub_table, gallery, e_style, e_title, e_volume, e_mood, edit_msg, tl_html,
-                 e_mute]
+                 e_mute, e_tlook, e_tcolor, e_tpos, e_slook, e_scolor]
+    text_ins = [e_tlook, e_tcolor, e_tpos, e_slook, e_scolor]
+    e_tlook.input(lambda k: autoedit.TEXT_LOOKS.get(k, ("", "#ffffff"))[1], [e_tlook], [e_tcolor])
     tl_data.change(timeline_changed, [plan_state, tl_data], [plan_state, shot_table], show_progress="hidden")
     shot_table.input(table_changed, [plan_state, shot_table, sub_table], [tl_html], show_progress="hidden")
     go.click(make, [files, style, focus, smart, aspect, length, title, subtitle_text, music_file, mood, subs, lang,
                     translate, quality, music_volume, captions, mute], [video, downloads, info, details] + edit_outs)
-    remake_btn.click(remake, [plan_state, shot_table, sub_table, e_style, e_title, e_volume, e_mood, e_music, e_mute],
+    remake_btn.click(remake, [plan_state, shot_table, sub_table, e_style, e_title, e_volume, e_mood, e_music, e_mute] + text_ins,
                      [e_video, e_downloads] + edit_outs)
-    lively_btn.click(lively, [plan_state, shot_table, sub_table, e_style, e_title, e_volume, e_mood, e_music, e_mute],
+    lively_btn.click(lively, [plan_state, shot_table, sub_table, e_style, e_title, e_volume, e_mood, e_music, e_mute] + text_ins,
                      [e_video, e_downloads] + edit_outs)
     add_btn.click(add_clips, [plan_state, shot_table, sub_table, add_files], edit_outs)
-    blend_btn.click(blend, [plan_state, shot_table, sub_table, add_files, e_style, e_title, e_volume, e_mood, e_music, e_mute],
+    blend_btn.click(blend, [plan_state, shot_table, sub_table, add_files, e_style, e_title, e_volume, e_mood, e_music, e_mute] + text_ins,
                     [e_video, e_downloads] + edit_outs)
     open_btn.click(open_project, [open_file], edit_outs)
     s_go.click(sort_now, [s_sources, s_library, s_home, s_auto, s_extra, s_album_name], [s_msg, s_album, s_extra])

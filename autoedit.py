@@ -272,12 +272,69 @@ FONT_CANDIDATES = {
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/System/Library/Fonts/Helvetica.ttc",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
     ],
+    "hand": [
+        "C:/Windows/Fonts/segoepr.ttf", "C:/Windows/Fonts/comicbd.ttf", "C:/Windows/Fonts/comic.ttf",
+        "/System/Library/Fonts/Supplemental/Chalkboard.ttc", "/System/Library/Fonts/Supplemental/Comic Sans MS Bold.ttf",
+        "/usr/share/fonts/truetype/comic-neue/ComicNeue-Bold.ttf",
+    ],
+    "heavy": [
+        "C:/Windows/Fonts/impact.ttf", "C:/Windows/Fonts/ariblk.ttf", "/System/Library/Fonts/Supplemental/Impact.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Black.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ],
     "serif": [
         "C:/Windows/Fonts/georgia.ttf", "C:/Windows/Fonts/times.ttf",
         "/System/Library/Fonts/Supplemental/Georgia.ttf", "/System/Library/Fonts/Times.ttc",
         "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf", "/usr/share/fonts/TTF/DejaVuSerif.ttf",
     ],
 }
+# how on-screen text can look (Edit tab / timeline): name -> (font, default colour)
+TEXT_LOOKS = {"pill": ("sans", "#141414"), "bold outline": ("heavy", "#ffffff"), "colour box": ("sans", "#e935c1"),
+              "neon": ("sans", "#3df2ff"), "handwriting": ("hand", "#ffffff"), "shadow": ("sans", "#ffffff")}
+TEXT_POSITIONS = ["top", "middle", "bottom"]
+TEXT_SIZES = {"small": 0.75, "medium": 1.0, "large": 1.35}
+
+
+def _rgb(hexcol, default=(255, 255, 255)):
+    try:
+        h = str(hexcol).strip().lstrip("#")
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    except Exception:
+        return default
+
+
+def draw_styled_line(img, d, ln, font, size, x, y, look, color):
+    """Draw one line of on-screen text in one of the TEXT_LOOKS."""
+    col = _rgb(color or TEXT_LOOKS.get(look, ("sans", "#ffffff"))[1])
+    tw = d.textlength(ln, font=font)
+    pad = size * 0.4
+    if look == "pill":
+        light = sum(col) / 3 < 140
+        d.rounded_rectangle([x - pad, y - pad * 0.5, x + tw + pad, y + size + pad * 0.8], radius=int(size * 0.3),
+                            fill=(255, 255, 255, 235) if light else (20, 20, 20, 210))
+        d.text((x, y), ln, font=font, fill=col + (255,))
+    elif look == "colour box":
+        d.rounded_rectangle([x - pad, y - pad * 0.5, x + tw + pad, y + size + pad * 0.8], radius=int(size * 0.25),
+                            fill=col + (235,))
+        dark = sum(col) / 3 > 170
+        d.text((x, y), ln, font=font, fill=(20, 20, 20, 255) if dark else (255, 255, 255, 255))
+    elif look == "neon":
+        glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        ImageDraw.Draw(glow).text((x, y), ln, font=font, fill=col + (255,), stroke_width=max(2, size // 10),
+                                  stroke_fill=col + (255,))
+        glow = glow.filter(ImageFilter.GaussianBlur(max(3, size // 6)))
+        img.alpha_composite(glow)
+        img.alpha_composite(glow)
+        d.text((x, y), ln, font=font, fill=(255, 255, 255, 255))
+    elif look == "shadow":
+        off = max(2, size // 14)
+        d.text((x + off, y + off), ln, font=font, fill=(0, 0, 0, 170))
+        d.text((x, y), ln, font=font, fill=col + (255,))
+    else:  # bold outline, handwriting: coloured text with a dark outline (TikTok look)
+        d.text((x, y), ln, font=font, fill=col + (255,), stroke_width=max(3, size // 9), stroke_fill=(0, 0, 0, 255))
+
+
 CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uff00-\uffef]")
 
 
@@ -824,7 +881,8 @@ def render_photo_clip(c, out, W, H, style, tr, enc, rng):
 
 
 # ------------------------------------------------------------------ text overlays
-def draw_text_png(path, W, H, text, kind="sub", style_name="pill", font_kind="sans", subtitle=None, letterbox=0):
+def draw_text_png(path, W, H, text, kind="sub", style_name="pill", font_kind="sans", subtitle=None, letterbox=0,
+                  look=None, color=None, pos=None, size_name=None):
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     if not text:
         img.save(path)
@@ -852,21 +910,36 @@ def draw_text_png(path, W, H, text, kind="sub", style_name="pill", font_kind="sa
         img.save(path)
         return
     if kind == "caption":  # on-screen text the user typed for a shot
-        size = int(short * (0.075 if W >= H else 0.068))
-        font = get_font("sans", size, text)
+        look = look if look in TEXT_LOOKS else "pill"
+        size = int(short * (0.075 if W >= H else 0.068) * TEXT_SIZES.get(size_name or "medium", 1.0))
+        font = get_font(TEXT_LOOKS[look][0], size, text)
         lines = wrap(d, text, font, W * 0.84)[:3]
-        y = max(letterbox, 0) + H * (0.08 if W >= H else 0.14)
+        block = size * 1.45 * len(lines)
+        pos = pos if pos in TEXT_POSITIONS else "top"
+        if pos == "middle":
+            y = H / 2 - block / 2
+        elif pos == "bottom":
+            y = H - max(letterbox, 0) - H * (0.16 if W >= H else 0.22) - block
+        else:
+            y = max(letterbox, 0) + H * (0.08 if W >= H else 0.14)
         for ln in lines:
             tw = d.textlength(ln, font=font)
-            x = (W - tw) / 2
-            pad = size * 0.4
-            d.rounded_rectangle([x - pad, y - pad * 0.5, x + tw + pad, y + size + pad * 0.8],
-                                radius=int(size * 0.3), fill=(255, 255, 255, 235))
-            d.text((x, y), ln, font=font, fill=(20, 20, 20, 255))
+            draw_styled_line(img, d, ln, font, size, (W - tw) / 2, y, look, color)
             y += size * 1.45
         img.save(path)
         return
     # subtitles
+    if look in TEXT_LOOKS:  # your own subtitle look from the Edit tab
+        size = int(short * 0.05 * TEXT_SIZES.get(size_name or "medium", 1.0))
+        font = get_font(TEXT_LOOKS[look][0], size, text)
+        lines = wrap(d, text, font, W * 0.84)[:3]
+        y = H - max(letterbox, 0) - H * 0.06 - size * 1.35 * len(lines)
+        for ln in lines:
+            tw = d.textlength(ln, font=font)
+            draw_styled_line(img, d, ln, font, size, (W - tw) / 2, y, look, color)
+            y += size * 1.35
+        img.save(path)
+        return
     big = style_name == "big"
     size = int(short * (0.062 if big else 0.048))
     font = get_font("sans", size, text)
@@ -1610,7 +1683,11 @@ def render_plan(plan, output=None, progress=None, log=print, keep_temp=False, _w
                     sub_lines.append(dict(start=max(a, off), end=b, text=str(l["text"]).strip()))
         if str(c.get("text") or "").strip():
             text_lines.append(dict(start=off + (0.15 if c["index"] else 0.6), end=off + c["dur"] - tr * 0.6,
-                                   text=str(c["text"]).strip()))
+                                   text=str(c["text"]).strip(),
+                                   kw=dict(look=c.get("text_look") or plan.get("text_look") or "pill",
+                                           color=c.get("text_color") or plan.get("text_color") or None,
+                                           pos=c.get("text_pos") or plan.get("text_pos") or "top",
+                                           size_name=c.get("text_size") or plan.get("text_size") or "medium")))
     sub_lines.sort(key=lambda s: s["start"])
     for a, b in zip(sub_lines, sub_lines[1:]):
         a["end"] = min(a["end"], b["start"])
@@ -1653,7 +1730,7 @@ def render_plan(plan, output=None, progress=None, log=print, keep_temp=False, _w
             if ln["start"] > cur + 0.01:
                 entries.append((blank, ln["start"] - cur))
             png = d / f"s{k:04d}.png"
-            draw_text_png(png, W, H, ln["text"], **kw)
+            draw_text_png(png, W, H, ln["text"], **(kw | ln.get("kw", {})))
             entries.append((png, ln["end"] - max(ln["start"], cur)))
             cur = ln["end"]
         entries.append((blank, max(0.1, total - cur)))
@@ -1665,7 +1742,10 @@ def render_plan(plan, output=None, progress=None, log=print, keep_temp=False, _w
             f.write(f"file '{blank.as_posix()}'\n")
         return lst
 
-    tracks = [t for t in (make_track("subs", sub_lines, style_name=S["sub_style"], letterbox=letterbox_h),
+    sub_kw = {}
+    if plan.get("sub_look") in TEXT_LOOKS:
+        sub_kw = dict(look=plan["sub_look"], color=plan.get("sub_color") or None)
+    tracks = [t for t in (make_track("subs", sub_lines, style_name=S["sub_style"], letterbox=letterbox_h, **sub_kw),
                           make_track("texts", text_lines, kind="caption", letterbox=letterbox_h)) if t]
 
     # ---- join the shots with transitions, a few at a time (many at once needs too much memory)
