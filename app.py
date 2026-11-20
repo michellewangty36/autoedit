@@ -211,7 +211,47 @@ def timeline_html(plan):
     if not plan or not plan.get("shots") or not plan.get("_dir"):
         return timeline.render(None, {}, [], [])
     return timeline.render(plan, thumb_map(plan), autoedit.EFFECTS, autoedit.XFADE_TRANSITIONS,
-                           autoedit.TEXT_LOOKS, autoedit.TEXT_POSITIONS, autoedit.TEXT_SIZES)
+                           autoedit.TEXT_LOOKS, autoedit.TEXT_POSITIONS, autoedit.TEXT_SIZES, preview_info(plan))
+
+
+_MUSIC_JOBS = set()
+
+
+def preview_music(plan):
+    """The song for the ▶ preview: your song, or the same new music Re-make would compose (made once, in the background)."""
+    m = plan.get("music")
+    if m and Path(m).exists():
+        return m
+    st = autoedit.STYLES.get(plan.get("style"), autoedit.STYLES["vlog"])
+    mood, seed = plan.get("mood") or st["mood"], plan.get("seed", 0)
+    total = sum(float(sh.get("dur", 3)) for sh in plan["shots"] if sh.get("keep", True))
+    secs = int(max(60, total * 1.3) // 30 + 1) * 30
+    out = Path(plan["_dir"]) / f"preview-music-{autoedit._slug(str(mood))}-{seed}-{secs}.wav"
+    if out.exists():
+        return str(out)
+    if str(out) not in _MUSIC_JOBS:
+        _MUSIC_JOBS.add(str(out))
+
+        def job():
+            try:
+                data, sr, _, _ = autoedit.music_gen.generate(secs, mood, seed=seed)
+                tmp = out.with_suffix(".tmp.wav")
+                autoedit.music_gen.write_wav(tmp, data, sr)
+                tmp.replace(out)
+            except Exception:
+                pass
+        import threading
+        threading.Thread(target=job, daemon=True).start()
+    return str(out)  # ready in a few seconds
+
+
+def preview_info(plan):
+    st = autoedit.STYLES.get(plan.get("style"), autoedit.STYLES["vlog"])
+    w, h = autoedit.out_size(plan.get("aspect") or st["aspect"], 360)
+    return dict(w=w, h=h, music=preview_music(plan), music_volume=float(plan.get("music_volume", st["music"])),
+                mute=bool(plan.get("mute")), text_look=plan.get("text_look") or "pill",
+                text_color=plan.get("text_color") or "", text_pos=plan.get("text_pos") or "top",
+                text_size=plan.get("text_size") or "medium")
 
 
 def timeline_changed(plan, data):

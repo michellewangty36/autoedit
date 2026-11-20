@@ -47,13 +47,13 @@ The new style is saved as a 🪄 button, so next time just tap it. (Songs from o
 
 ## ✂️ Edit (edit it myself)
 
-After a video is made, open the **✂️ Edit** tab. Your video is shown as a **timeline** of shots, like CapCut:
+After a video is made, open the **✂️ Edit** tab. Your video is shown as a **timeline** of shots, like CapCut. Press **▶ Play** any time to watch a quick preview of your changes (order, lengths, text, effects, sound), no re-make needed:
 - **Move a shot:** drag it to a new place.
 - **Make it longer or shorter:** drag its right edge (the pink strip).
 - **Remove a shot:** press ✕. It goes to **Removed**, and ↩ puts it back.
 - **Change a shot:** tap it to preview it and change its length, where a clip starts, speed (0.5 is slow motion), its sound (on/off), text on screen, effect and transition.
 - **Text look:** for one shot, tap it and pick the text look (pill, bold outline, colour box, neon, handwriting, shadow), colour, where it sits and its size. For all text and subtitles, open **🔤 Text style & colour**.
-- Press **🎬 Re-make video with my changes** when you're happy.
+- Press **🎬 Re-make video with my changes** when you're happy. That makes the final video with the exact colours, transitions and subtitles.
 
 It works on your phone too. **📝 Subtitles** lets you fix any subtitle words or timing. **Table view (advanced)** still has the old table. You can also change the style, title, music mood, volume or song.
 
