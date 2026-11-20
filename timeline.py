@@ -453,6 +453,24 @@ JS = r"""
   new MutationObserver(() => { const st = root() && root().querySelector('.ae-stage'); if (st && !st.style.width) sizeStage(); })
     .observe(document.body, {childList: true, subtree: true});
   window.addEventListener('resize', () => root() && root().querySelector('.ae-stage') && sizeStage());
+  // Mute box and music volume in the Edit tab change the preview straight away
+  function setPv(k, v) {
+    if (!root()) return;
+    const o = pv(); o[k] = v; root().dataset.preview = JSON.stringify(o);
+    if (k === 'mute') root().querySelectorAll('.ae-layer video').forEach(el => {
+      const c = cards()[P ? P.i : -1];
+      el.muted = v || (c && c.dataset.mute === 'off');
+    });
+    if (k === 'music_volume' && P && P.audio) P.audio.volume = Math.max(0, Math.min(1, v));
+  }
+  function watchControls(e) {
+    const m = e.target.closest('#ae-mute input[type=checkbox]');
+    if (m) setPv('mute', m.checked);
+    const vol = e.target.closest('#ae-mvol input');
+    if (vol) setPv('music_volume', (parseFloat(vol.value) || 0) / 100);
+  }
+  document.addEventListener('change', watchControls);
+  document.addEventListener('input', watchControls);
   // edits in the panel
   document.addEventListener('change', e => {
     const f = e.target.closest('#ae-tl .ae-panel [data-k]');

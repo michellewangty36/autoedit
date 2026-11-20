@@ -903,8 +903,8 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                 e_song = gr.Dropdown(song_choices(), value=None, label="🎵 Change the song", filterable=False)
                 e_mood = gr.Dropdown(MOOD_CHOICES, value="default", label="Music mood (for new music)",
                                      filterable=False)
-                e_volume = gr.Slider(0, 100, value=40, step=5, label="Music volume")
-                e_mute = gr.Checkbox(value=False, label="🔇 Mute the original sound")
+                e_volume = gr.Slider(0, 100, value=40, step=5, label="Music volume", elem_id="ae-mvol")
+                e_mute = gr.Checkbox(value=False, label="🔇 Mute the original sound", elem_id="ae-mute")
             with gr.Row():
                 e_music = gr.File(label="Change the song (optional)", type="filepath", file_types=["audio"])
                 add_files = gr.File(label="Add more photos / videos", file_count="multiple", type="filepath")
@@ -979,6 +979,8 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
     edit_outs = [plan_state, shot_table, sub_table, gallery, e_style, e_title, e_volume, e_mood, edit_msg, tl_html,
                  e_mute, e_tlook, e_tcolor, e_tpos, e_slook, e_scolor]
     text_ins = [e_tlook, e_tcolor, e_tpos, e_slook, e_scolor]
+    e_mute.input(lambda plan, m: (plan.update(mute=bool(m)) or plan) if plan else plan, [plan_state, e_mute],
+                 [plan_state], show_progress="hidden")
     e_tlook.input(lambda k: autoedit.TEXT_LOOKS.get(k, ("", "#ffffff"))[1], [e_tlook], [e_tcolor])
     tl_data.change(timeline_changed, [plan_state, tl_data], [plan_state, shot_table], show_progress="hidden")
     shot_table.input(table_changed, [plan_state, shot_table, sub_table], [tl_html], show_progress="hidden")
