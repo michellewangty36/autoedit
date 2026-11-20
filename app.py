@@ -56,7 +56,7 @@ def song_choices():
     folder = HERE / "music"
     files = sorted((f for f in folder.rglob("*") if f.suffix.lower() in autoedit.AUDIO_EXT), key=lambda f: f.stem.lower()) \
         if folder.exists() else []
-    return [("🎼 New music made for this video (free to post)", "")] + [(f"🎵 {f.stem}", str(f)) for f in files]
+    return [("🎼 New music for my video", "")] + [(f"🎵 {f.stem}", str(f)) for f in files]
 
 
 def pick_song(path):
@@ -113,6 +113,21 @@ def style_help(k):
 ASPECT_CHOICES = [("Default for style", "default"), ("16:9 YouTube / TV", "16:9"),
                   ("9:16 TikTok / Reels / Shorts", "9:16"), ("1:1 Square", "1:1"), ("4:5 Instagram post", "4:5")]
 MOOD_CHOICES = [("Match the style", "default")] + [(m.capitalize(), m) for m in autoedit.music_gen.MOODS]
+MOOD_EMOJI = {"default": "✨", "upbeat": "🕺", "happy": "😊", "chill": "🌿", "cinematic": "🎬", "emotional": "🥹",
+              "cozy": "☕", "spooky": "🎃", "dreamy": "🌸", "festive": "🎄"}
+MOOD_BUTTONS = [("✨ Match the style", "default")] + [(f"{MOOD_EMOJI.get(v, '🎵')} {lab} music", v)
+                                                     for lab, v in MOOD_CHOICES[1:]]
+
+
+def mood_picked(plan, mood):
+    """Picking a mood means: new music in that mood (instead of a song), and the preview plays it."""
+    if plan:
+        if mood and mood != "default":
+            plan["mood"] = mood
+        plan["music"] = None
+        save_plan(plan)
+        return plan, timeline_html(plan), None, None
+    return plan, gr.update(), None, None
 LANG_CHOICES = [("Auto-detect", ""), ("English", "en"), ("Chinese 中文", "zh"), ("Malay", "ms"),
                 ("Cantonese 粵語", "yue"), ("Japanese 日本語", "ja"), ("Korean 한국어", "ko"),
                 ("Indonesian", "id"), ("Thai", "th"), ("Vietnamese", "vi"), ("Tamil", "ta"),
@@ -845,6 +860,8 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                     mute = gr.Checkbox(value=False, label="🔇 Mute the original sound (music only)")
                     song = gr.Dropdown(song_choices(), value="", label="🎵 Song (every song you upload is kept here)",
                                        filterable=False)
+                    mood = gr.Radio(MOOD_BUTTONS, value="default",
+                                    label="🎼 Music mood (tap one, for new music made for your video)")
                     focus = gr.Textbox(label="What should it focus on? (optional)",
                                        placeholder="e.g. food, beach, sunset, my dog")
                     smart = gr.Checkbox(value=True, label="🧠 Smart AI: understands what's in your shots (free, offline)")
@@ -860,8 +877,6 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                         translate = gr.Checkbox(value=False, label="Translate subtitles to English")
                         music_file = gr.File(label="Your own song (optional, mp3/wav/m4a)", type="filepath",
                                              file_types=["audio"])
-                        mood = gr.Dropdown(MOOD_CHOICES, value="default", label="Music mood (if no song uploaded)",
-                                           filterable=False)
                         music_volume = gr.Slider(0, 100, value=40, step=5, label="Music volume")
                         quality = gr.Radio(list(QUALITY), value="1080p Full HD", label="Quality")
                     go = gr.Button("🎬 Make my video", variant="primary", size="lg")
@@ -898,11 +913,10 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
                                        label="Subtitles: look")
                     e_scolor = gr.ColorPicker(value="#ffffff", label="Subtitle colour")
                 gr.Markdown("Want one shot to look different? Tap it in the timeline and change its text look there.")
+            e_mood = gr.Radio(MOOD_BUTTONS, value="default", label="🎼 Music mood (tap one, for new music)")
             with gr.Row():
                 e_title = gr.Textbox(label="Title (empty = no title)")
                 e_song = gr.Dropdown(song_choices(), value=None, label="🎵 Change the song", filterable=False)
-                e_mood = gr.Dropdown(MOOD_CHOICES, value="default", label="Music mood (for new music)",
-                                     filterable=False)
                 e_volume = gr.Slider(0, 100, value=40, step=5, label="Music volume", elem_id="ae-mvol")
                 e_mute = gr.Checkbox(value=False, label="🔇 Mute the original sound", elem_id="ae-mute")
             with gr.Row():
@@ -970,6 +984,8 @@ with gr.Blocks(title="AutoEdit - free automatic video editor", analytics_enabled
         p_qr = gr.Image(label="Scan with your phone", visible=False, height=260, show_label=True)
 
     style.change(style_help, [style], [style_desc], show_progress="hidden")
+    mood.input(lambda m: ("", None), [mood], [song, music_file], show_progress="hidden")
+    e_mood.input(mood_picked, [plan_state, e_mood], [plan_state, tl_html, e_song, e_music], show_progress="hidden")
     learn_btn.click(learn, [ref_file, ref_name, ref_song], [style, style_desc, learn_msg, music_file, song, e_style, s_style])
     song.input(pick_song, [song], [music_file], show_progress="hidden")
     e_song.input(pick_song, [e_song], [e_music], show_progress="hidden")
