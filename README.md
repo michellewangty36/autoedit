@@ -120,6 +120,8 @@ AutoEdit has a free AI built in that looks at every shot and understands what's 
 - **Spooky**: for Halloween, with dark green and purple shadows, flickering grain, slow reveals and eerie music.
 - **Throwback**: the "2026 is the new 2016" trend, a bright, warm, extra-saturated Instagram-filter look with quick fun cuts.
 - **Festive**: for Christmas and the holidays, with a warm golden glow, cosy reds, sparkly white flashes and bright happy music.
+- **Colourpop**: the "moody with a pop" look, almost black and white with only reds and pinks staying bright, plus soft fades.
+- **Neon**: neon cyberpunk, with deep shadows, glowing magenta and cyan, and quick beat cuts. Great for city nights.
 
 ## Tips
 

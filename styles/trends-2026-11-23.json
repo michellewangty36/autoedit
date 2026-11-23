@@ -1,0 +1,21 @@
+{
+  "about": "Style pack, late November 2026: 'moody with a pop' colour-pop look and high-contrast neon cyberpunk.",
+  "moods": {
+    "neon": {"extends": "upbeat", "bpm": 128, "key": "E", "prog": [0, 3, 5, 4]}
+  },
+  "styles": {
+    "colourpop": {
+      "extends": "moody",
+      "desc": "Colour pop: almost black & white, only reds and pinks stay bright, soft fades",
+      "grade": "colorhold=color=0xd02a3a:similarity=0.32:blend=0.12,eq=contrast=1.12:saturation=1.25:gamma=0.97",
+      "grain": 4, "vignette": true, "transitions": ["fade", "dissolve", "fadeblack"], "mood": "cinematic"
+    },
+    "neon": {
+      "extends": "velocity",
+      "desc": "Neon cyberpunk: deep shadows, glowing magenta and cyan, quick beat cuts",
+      "grade": "eq=contrast=1.28:saturation=1.4:gamma=0.92:brightness=-0.02,colorbalance=rs=-0.05:bs=0.14:rh=0.10:bh=0.08:gm=-0.04,unsharp=5:5:0.6",
+      "transitions": ["pixelize", "zoomin", "hblur", "fadewhite", "squeezeh"],
+      "vignette": true, "mood": "neon"
+    }
+  }
+}

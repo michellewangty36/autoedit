@@ -33,7 +33,7 @@ STYLE_CHOICES = [("Auto (let it decide)", "auto")] + [
 STYLE_ONLY = [(f"{k.capitalize()}", k) for k in autoedit.STYLES]
 STYLE_EMOJI = {"auto": "✨", "vlog": "🎥", "travel": "✈️", "cinematic": "🎬", "film": "🎞️", "reels": "📱",
                "chill": "🌿", "velocity": "⚡", "clean": "🤍", "cozy": "☕", "spooky": "🎃", "throwback": "📼",
-               "y2k": "💿", "moody": "🌧️", "dreamy": "🌸", "festive": "🎄"}
+               "y2k": "💿", "moody": "🌧️", "dreamy": "🌸", "festive": "🎄", "colourpop": "🌹", "neon": "🌃"}
 def style_buttons():
     mine = [k for k, v in autoedit.STYLES.items() if v.get("ref_q") is not None]
     std = [k for k in autoedit.STYLES if k not in mine and k != "reels"]
@@ -114,7 +114,7 @@ ASPECT_CHOICES = [("Default for style", "default"), ("16:9 YouTube / TV", "16:9"
                   ("9:16 TikTok / Reels / Shorts", "9:16"), ("1:1 Square", "1:1"), ("4:5 Instagram post", "4:5")]
 MOOD_CHOICES = [("Match the style", "default")] + [(m.capitalize(), m) for m in autoedit.music_gen.MOODS]
 MOOD_EMOJI = {"default": "✨", "upbeat": "🕺", "happy": "😊", "chill": "🌿", "cinematic": "🎬", "emotional": "🥹",
-              "cozy": "☕", "spooky": "🎃", "dreamy": "🌸", "festive": "🎄"}
+              "cozy": "☕", "spooky": "🎃", "dreamy": "🌸", "festive": "🎄", "neon": "🌃"}
 MOOD_BUTTONS = [("✨ Match the style", "default")] + [(f"{MOOD_EMOJI.get(v, '🎵')} {lab} music", v)
                                                      for lab, v in MOOD_CHOICES[1:]]
 
